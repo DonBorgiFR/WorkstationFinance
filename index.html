@@ -18,6 +18,16 @@
     </div>
     <div class="topbar-sep"></div>
     <span class="topbar-badge" id="empresa-badge">Sin empresa cargada</span>
+    <div style="margin-left: auto; display: flex; gap: 12px; align-items: center;">
+      <button class="btn btn-secondary" id="btn-export-pdf" style="padding: 6px 12px; font-size: 0.8rem; display: none;" title="Exportar Vista a PDF">📄 PDF</button>
+      <button class="btn btn-secondary" id="btn-export-excel" style="padding: 6px 12px; font-size: 0.8rem; display: none;" title="Exportar Modelo Financiero a Excel">📥 Excel</button>
+      <div class="topbar-sep" id="export-sep" style="display: none;"></div>
+      <label class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem; cursor: pointer;" title="Cargar Sesión Guardada">
+        📂 Cargar Sesión
+        <input type="file" id="session-upload-input" accept=".aptki,.json" style="display:none;" />
+      </label>
+      <button class="btn btn-primary" onclick="exportSession()" style="padding: 6px 12px; font-size: 0.8rem;" title="Guardar Progreso">💾 Guardar</button>
+    </div>
   </header>
 
   <!-- NAV -->
@@ -312,6 +322,7 @@
 
 <!-- LIBS CDN -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
 <!-- APP SCRIPTS (orden importa) -->
 <script src="js/profiles.js"></script>
@@ -321,6 +332,8 @@
 <script src="js/knowledge.js"></script>
 <script src="js/scorer.js"></script>
 <script src="js/forecaster.js"></script>
+<script src="js/session.js"></script>
+<script src="js/exporter.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

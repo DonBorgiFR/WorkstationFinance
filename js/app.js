@@ -36,6 +36,21 @@ function navigate(sectionId) {
   if (sec) sec.classList.add('active');
   if (nav) nav.classList.add('active');
 
+  // Control de botones de exportación superior
+  const btnExportPdf = document.getElementById('btn-export-pdf');
+  const btnExportExcel = document.getElementById('btn-export-excel');
+  const exportSep = document.getElementById('export-sep');
+  
+  if (STATE.analysisResult && (sectionId === 'dashboard' || sectionId === 'forecast' || sectionId === 'scoring')) {
+    if (btnExportPdf) btnExportPdf.style.display = 'block';
+    if (btnExportExcel) btnExportExcel.style.display = 'block';
+    if (exportSep) exportSep.style.display = 'block';
+  } else {
+    if (btnExportPdf) btnExportPdf.style.display = 'none';
+    if (btnExportExcel) btnExportExcel.style.display = 'none';
+    if (exportSep) exportSep.style.display = 'none';
+  }
+
   // Renderizar sección si tiene datos
   if (sectionId === 'dashboard' && STATE.analysisResult) renderDashboard();
   if (sectionId === 'scoring') renderScorer();
