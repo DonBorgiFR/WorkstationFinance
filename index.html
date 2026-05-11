@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>APTKI Workstation — CFO Toolkit</title>
+  <meta name="description" content="Herramienta de análisis financiero para Consultores Senior APTKI. Procesa libros diarios PGC, calcula KPIs y genera diagnósticos automáticos." />
+  <link rel="stylesheet" href="css/index.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div class="topbar-logo">
+      <img src="assets/logo.jpg" alt="APTKI Logo" onerror="this.style.display='none'" />
+      <div class="brand">APTKI <span>Workstation</span></div>
+    </div>
+    <div class="topbar-sep"></div>
+    <span class="topbar-badge" id="empresa-badge">Sin empresa cargada</span>
+  </header>
+
+  <!-- NAV -->
+  <nav class="nav" role="navigation">
+    <button class="nav-item active" data-section="carga" id="nav-carga">
+      <span class="nav-icon">📂</span> Cargar Libro
+    </button>
+    <button class="nav-item" data-section="dashboard" id="nav-dashboard">
+      <span class="nav-icon">📊</span> Dashboard
+    </button>
+    <button class="nav-item" data-section="checklist" id="nav-checklist">
+      <span class="nav-icon">✅</span> Filtro Día 1
+    </button>
+    <button class="nav-item" data-section="scoring" id="nav-scoring">
+      <span class="nav-icon">🏅</span> Scoring Público
+    </button>
+    <button class="nav-item" data-section="forecast" id="nav-forecast">
+      <span class="nav-icon">📈</span> Forecast 12M
+    </button>
+    <button class="nav-item" data-section="financiacion" id="nav-financiacion">
+      <span class="nav-icon">💰</span> Financiación
+    </button>
+    <button class="nav-item" data-section="defensa" id="nav-defensa">
+      <span class="nav-icon">🛡️</span> Defensa
+    </button>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- ========== SECCIÓN: CARGA ========== -->
+    <section class="section active" id="section-carga">
+      <div class="page-header">
+        <h1>Cargar Libro Diario</h1>
+        <p>Arrastra o selecciona un archivo <strong>.xlsx</strong> con el libro diario contable (PGC español). El motor lo analizará automáticamente.</p>
+      </div>
+
+      <!-- DROP ZONE -->
+      <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Zona para arrastrar archivos Excel">
+        <span class="dropzone-icon">📑</span>
+        <h2>Arrastra tu Libro Diario aquí</h2>
+        <p>Formato Excel (.xlsx) con asientos según PGC español.<br/>Pestañas mensuales o columnas Fecha / Cuenta / Debe / Haber.</p>
+        <label for="file-input" class="btn btn-primary" style="cursor:pointer;">
+          ⬆️ Seleccionar archivo
+        </label>
+        <input type="file" id="file-input" accept=".xlsx,.xls" />
+        <br/><br/>
+        <span class="dropzone-hint">🔒 El archivo nunca sale de tu navegador</span>
+      </div>
+
+      <!-- PERFIL SELECTOR -->
+      <div class="profile-selector" id="profile-selector">
+        <h3>Selecciona el perfil de empresa</h3>
+        <div class="profile-grid" id="profile-grid">
+          <!-- Renderizado por JS -->
+        </div>
+      </div>
+
+      <!-- EMPRESA FORM -->
+      <div class="empresa-form" id="empresa-form">
+        <div class="form-group">
+          <label for="input-empresa-nombre">Nombre empresa</label>
+          <input type="text" id="input-empresa-nombre" placeholder="Ej: FlowMetrics S.L." />
+        </div>
+        <div class="form-group">
+          <label for="input-empresa-sector">Sector</label>
+          <input type="text" id="input-empresa-sector" placeholder="Ej: SaaS B2B" />
+        </div>
+        <div class="form-group">
+          <label for="input-empresa-empleados">Nº Empleados</label>
+          <input type="number" id="input-empresa-empleados" placeholder="Ej: 10" min="1" />
+        </div>
+        <div style="display:flex; gap:10px; align-items:flex-end; flex-shrink:0;">
+          <button class="btn btn-primary" id="btn-analizar" disabled>
+            🔍 Analizar
+          </button>
+        </div>
+      </div>
+
+      <!-- BARRA DE PROGRESO -->
+      <div class="parse-progress" id="parse-progress">
+        <div class="progress-label">
+          <span id="progress-text">Procesando...</span>
+          <span id="progress-pct">0%</span>
+        </div>
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progress-bar"></div>
+        </div>
+        <div class="parse-log" id="parse-log"></div>
+      </div>
+
+      <!-- RESUMEN POST-PARSE -->
+      <div class="parse-summary" id="parse-summary">
+        <div class="summary-stat"><div class="stat-val" id="sum-meses">—</div><div class="stat-label">Meses detectados</div></div>
+        <div class="summary-stat"><div class="stat-val" id="sum-asientos">—</div><div class="stat-label">Asientos leídos</div></div>
+        <div class="summary-stat"><div class="stat-val" id="sum-cuentas">—</div><div class="stat-label">Cuentas únicas</div></div>
+        <div class="summary-stat"><div class="stat-val" id="sum-ingresos">—</div><div class="stat-label">Total Ingresos</div></div>
+        <div class="summary-stat"><div class="stat-val" id="sum-gastos">—</div><div class="stat-label">Total Gastos</div></div>
+        <div class="summary-stat"><div class="stat-val" id="sum-anomalias">—</div><div class="stat-label">Anomalías</div></div>
+      </div>
+
+      <!-- ANOMALÍAS -->
+      <div id="anomaly-section" style="display:none; margin-top:24px;">
+        <div class="card">
+          <div class="card-title">⚠️ Anomalías Detectadas</div>
+          <div class="anomaly-list" id="anomaly-list"></div>
+        </div>
+      </div>
+
+      <!-- TABLA PREVIEW -->
+      <div id="preview-section" style="display:none; margin-top:24px;">
+        <div class="card">
+          <div class="card-title">Vista previa — Asientos (primeros 50)</div>
+          <div class="table-wrap">
+            <table id="preview-table">
+              <thead>
+                <tr>
+                  <th>Mes</th>
+                  <th>Fecha</th>
+                  <th>Asiento</th>
+                  <th>Cuenta</th>
+                  <th>Descripción</th>
+                  <th style="text-align:right">Debe (€)</th>
+                  <th style="text-align:right">Haber (€)</th>
+                </tr>
+              </thead>
+              <tbody id="preview-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACCIÓN IR A MAPEO (Paso 2) -->
+      <div id="goto-mapping-bar" style="display:none; margin-top:24px; text-align:center;">
+        <button class="btn btn-primary" id="btn-goto-mapping" style="font-size:1rem; padding:14px 32px;">
+          ⚙️ Paso 2: Reclasificación y Mapeo →
+        </button>
+      </div>
+
+      <!-- SECCIÓN: MAPEO DE CUENTAS (Paso 2) -->
+      <div id="mapping-section" style="display:none; margin-top:32px;">
+        <div class="page-header" style="margin-bottom:16px;">
+          <h2 style="font-family:var(--font-display);font-size:1.4rem;color:var(--text-primary);">Paso 2: Ajuste Fino de Cuentas (Mapeo Humano)</h2>
+          <p>Revisa y ajusta cómo se clasificarán las cuentas contables de pérdidas y ganancias (grupos 6 y 7). El sistema ha pre-asignado categorías según el PGC.</p>
+        </div>
+        <div class="card">
+          <div class="card-title">Cuentas Relevantes (PyG)</div>
+          <div class="table-wrap">
+            <table id="mapping-table">
+              <thead>
+                <tr>
+                  <th>Cuenta</th>
+                  <th>Descripción Original</th>
+                  <th style="text-align:right">Saldo Neto (€)</th>
+                  <th>Clasificación Analítica</th>
+                </tr>
+              </thead>
+              <tbody id="mapping-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACCIÓN IR A PERIODIFICACIONES (Paso 3) -->
+      <div id="goto-accruals-bar" style="display:none; margin-top:24px; text-align:center;">
+        <button class="btn btn-primary" id="btn-goto-accruals" style="font-size:1rem; padding:14px 32px;">
+          ⚖️ Paso 3: Ajustes de Devengo →
+        </button>
+      </div>
+
+      <!-- SECCIÓN: PERIODIFICACIONES (Paso 3) -->
+      <div id="accruals-section" style="display:none; margin-top:32px;">
+        <div class="page-header" style="margin-bottom:16px;">
+          <h2 style="font-family:var(--font-display);font-size:1.4rem;color:var(--text-primary);">Paso 3: Periodificaciones (Accrual Engine)</h2>
+          <p>El sistema ha detectado pagos concentrados que podrían distorsionar tu EBITDA mensual (ej. primas anuales de seguros, licencias). Selecciona cuáles deseas prorratear.</p>
+        </div>
+        
+        <div id="accruals-empty" class="card" style="display:none; text-align:center; padding:40px;">
+          <div style="font-size:2rem; margin-bottom:12px;">✅</div>
+          <h3 style="color:var(--text-primary);">No se detectaron distorsiones</h3>
+          <p style="color:var(--text-secondary); margin-top:8px;">Los gastos parecen estar repartidos razonablemente en el tiempo.</p>
+        </div>
+
+        <div id="accruals-content" class="card" style="display:none;">
+          <div class="card-title">Sugerencias Automáticas</div>
+          <div class="table-wrap">
+            <table id="accruals-table">
+              <thead>
+                <tr>
+                  <th style="width:60px;text-align:center;">Prorratear</th>
+                  <th>Cuenta</th>
+                  <th>Gasto Detectado</th>
+                  <th>Mes Origen</th>
+                  <th style="text-align:right">Importe Total (€)</th>
+                  <th style="text-align:right">Propuesta Mensual (€)</th>
+                </tr>
+              </thead>
+              <tbody id="accruals-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div style="margin-top:24px; text-align:center;">
+          <button class="btn btn-primary" id="btn-goto-dashboard" style="font-size:1.1rem; padding:16px 40px; box-shadow:var(--shadow-glow-cyan);">
+            📊 Paso 4: Generar Dashboard Final
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== SECCIÓN: DASHBOARD ========== -->
+    <section class="section" id="section-dashboard">
+      <div class="page-header">
+        <h1 id="dashboard-title">Dashboard — CFO Cockpit</h1>
+        <p id="dashboard-subtitle">Carga un libro diario para ver el análisis completo.</p>
+      </div>
+      <div id="dashboard-empty" class="empty-state">
+        <div class="empty-icon">📊</div>
+        <p>Aún no hay datos. Ve a <strong>Cargar Libro</strong> para comenzar.</p>
+      </div>
+      <div id="dashboard-content" style="display:none;">
+        <!-- KPI universales -->
+        <div class="kpi-grid" id="kpi-universal"></div>
+        <!-- KPI por perfil -->
+        <div id="kpi-perfil-section" style="display:none;">
+          <h2 style="font-family:var(--font-display);font-size:1rem;color:var(--text-secondary);margin-bottom:14px;text-transform:uppercase;letter-spacing:0.08em;" id="kpi-perfil-title">KPIs del Perfil</h2>
+          <div class="kpi-grid" id="kpi-perfil"></div>
+        </div>
+        <!-- PyG mensual -->
+        <div class="card" style="margin-top:24px;">
+          <div class="card-title">📈 PyG Analítica Mensual</div>
+          <div class="table-wrap">
+            <table id="pyg-table">
+              <thead><tr id="pyg-head"></tr></thead>
+              <tbody id="pyg-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== SECCIÓN: CHECKLIST ========== -->
+    <section class="section" id="section-checklist">
+      <div class="page-header">
+        <h1>Filtro Día 1</h1>
+        <p>Framework de evaluación de calidad para el trabajo de CFO Interino. Marca los criterios completados.</p>
+      </div>
+      <div id="checklist-root"><!-- Renderizado por checklist.js --></div>
+    </section>
+
+    <!-- ========== SECCIÓN: SCORING PÚBLICO ========== -->
+    <section class="section" id="section-scoring">
+      <div class="page-header">
+        <h1>Scoring de Elegibilidad Pública</h1>
+        <p>Evaluación automática del perfil de la empresa para <strong>ENISA Emprendedores</strong> y <strong>CDTI Neotec</strong> basada en los datos del libro analizado.</p>
+      </div>
+      <div id="scoring-root"><!-- Renderizado por scorer.js --></div>
+    </section>
+
+    <!-- ========== SECCIÓN: FORECAST 12M ========== -->
+    <section class="section" id="section-forecast">
+      <div class="page-header">
+        <h1>Forecast 12 Meses</h1>
+        <p>Proyección financiera basada en el histórico devengado. Ajusta las hipótesis y visualiza tres escenarios de evolución.</p>
+      </div>
+      <div id="forecast-root"><!-- Renderizado por forecaster.js --></div>
+    </section>
+
+    <!-- ========== SECCIÓN: FINANCIACIÓN ========== -->
+    <section class="section" id="section-financiacion">
+      <div class="page-header">
+        <h1>Guía de Financiación</h1>
+        <p>Opciones de financiación pública, privada y bancaria — metodología APTKI.</p>
+      </div>
+      <div id="financiacion-root"><!-- Renderizado por knowledge.js --></div>
+    </section>
+
+    <!-- ========== SECCIÓN: DEFENSA ========== -->
+    <section class="section" id="section-defensa">
+      <div class="page-header">
+        <h1>Preparación de Defensa</h1>
+        <p>Preguntas trampa, talking points y datos de memoria rápida del último análisis.</p>
+      </div>
+      <div id="defensa-root"><!-- Renderizado por app.js --></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- LIBS CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<!-- APP SCRIPTS (orden importa) -->
+<script src="js/profiles.js"></script>
+<script src="js/parser.js"></script>
+<script src="js/analyzer.js"></script>
+<script src="js/checklist.js"></script>
+<script src="js/knowledge.js"></script>
+<script src="js/scorer.js"></script>
+<script src="js/forecaster.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

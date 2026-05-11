@@ -1,0 +1,16 @@
+# Dependencias y logs
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# SO
+.DS_Store
+Thumbs.db
+*.swp
+
+# Archivos de sesión temporales
+*.aptki
+
+# IDE
+.vscode/
+.idea/
