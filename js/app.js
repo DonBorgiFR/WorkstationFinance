@@ -445,6 +445,10 @@ function renderDashboard() {
   document.getElementById('dashboard-empty').style.display = 'none';
   document.getElementById('dashboard-content').style.display = 'block';
 
+  // Waterfall y Narrative
+  renderWaterfall(data);
+  if (typeof renderNarrative === 'function') renderNarrative();
+
   // KPIs universales
   const kpiUniversalEl = document.getElementById('kpi-universal');
   kpiUniversalEl.innerHTML = UNIVERSAL_KPIS.map(kpi => {
@@ -601,6 +605,103 @@ function renderDefensa() {
             </div>
           </details>
         `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+}
+
+// ---- Render: Waterfall Chart ----
+function renderWaterfall(data) {
+  const container = document.getElementById('waterfall-container');
+  if (!container) return;
+
+  const t = data.totales;
+  const ingresos = t.ingresos;
+  const cogs = t.cogs;
+  const margenBruto = ingresos - cogs;
+  
+  // Separar personal del resto del OPEX
+  const personalTotal = Object.values(data.pygMensual).reduce((s, m) => s + m.personal, 0);
+  const opexOperativo = t.gastos - t.cogs - (t.amortizacion || 0) - (t.gastosFinancieros || 0);
+  const restoOpex = opexOperativo - personalTotal;
+  const ebitda = t.ebitda;
+
+  const steps = [
+    { label: 'Ingresos', val: ingresos, type: 'total', color: 'var(--green)' },
+    { label: 'COGS', val: -cogs, type: 'diff', color: 'var(--red)' },
+    { label: 'Margen Bruto', val: margenBruto, type: 'subtotal', color: 'var(--cyan)' },
+    { label: 'Personal', val: -personalTotal, type: 'diff', color: 'var(--amber)' },
+    { label: 'Resto OPEX', val: -restoOpex, type: 'diff', color: 'var(--red)' },
+    { label: 'EBITDA', val: ebitda, type: 'final', color: ebitda >= 0 ? 'var(--green)' : 'var(--red)' }
+  ];
+
+  const maxVal = Math.max(ingresos, margenBruto, ebitda) * 1.1; // 10% margen superior
+  const minVal = Math.min(0, ebitda) * 1.1;
+  const range = maxVal - minVal || 1;
+
+  const W = 800, H = 220;
+  const PAD = { t: 20, r: 20, b: 30, l: 60 };
+  const iW = W - PAD.l - PAD.r;
+  const iH = H - PAD.t - PAD.b;
+
+  const yScale = v => PAD.t + iH - ((v - minVal) / range) * iH;
+  const y0 = yScale(0); // linea base cero
+
+  const barWidth = (iW / steps.length) * 0.7;
+  const gap = (iW / steps.length) * 0.3;
+
+  let currentY = y0;
+  let svgContent = '';
+
+  const fmt = v => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(v) + '€';
+
+  steps.forEach((s, i) => {
+    const x = PAD.l + i * (barWidth + gap) + gap/2;
+    let y, h;
+
+    if (s.type === 'total' || s.type === 'subtotal' || s.type === 'final') {
+      y = yScale(Math.max(0, s.val));
+      h = Math.abs(yScale(s.val) - y0);
+      currentY = yScale(s.val); // actualizar base para los diffs
+    } else { // diff
+      if (s.val < 0) {
+        y = currentY; 
+        h = yScale(s.val) - yScale(0); // el tamaño del salto hacia abajo
+        currentY = y + h; // bajar la base
+      } else {
+        h = yScale(0) - yScale(s.val);
+        y = currentY - h;
+        currentY = y;
+      }
+    }
+
+    svgContent += `
+      <rect x="${x}" y="${y}" width="${barWidth}" height="${h || 1}" fill="${s.color}" rx="2" />
+      <text x="${x + barWidth/2}" y="${y - 6}" text-anchor="middle" style="font-size:10px;fill:var(--text-primary);font-weight:600;">${s.type === 'diff' && s.val > 0 ? '+' : ''}${fmt(s.val)}</text>
+      <text x="${x + barWidth/2}" y="${H - 10}" text-anchor="middle" style="font-size:10px;fill:var(--text-muted);">${s.label}</text>
+    `;
+
+    // Linea conectora
+    if (i < steps.length - 1 && s.type !== 'subtotal' && steps[i+1].type !== 'subtotal' && steps[i+1].type !== 'final') {
+      const nextX = x + barWidth;
+      svgContent += `<line x1="${nextX}" y1="${currentY}" x2="${nextX + gap}" y2="${currentY}" stroke="rgba(255,255,255,0.2)" stroke-dasharray="2,2"/>`;
+    }
+  });
+
+  // Zero line
+  if (y0 >= PAD.t && y0 <= PAD.t + iH) {
+    svgContent += `<line x1="${PAD.l}" y1="${y0}" x2="${W - PAD.r}" y2="${y0}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
+  }
+
+  container.innerHTML = `
+    <div class="card" style="padding-bottom:12px;">
+      <div class="card-title">🌉 Cascada de Rentabilidad (Periodo Acumulado)</div>
+      <div style="overflow-x:auto;">
+        <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;margin:0 auto;">
+          ${svgContent}
+        </svg>
       </div>
     </div>
   `;

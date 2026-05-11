@@ -249,6 +249,10 @@
         <p>Aún no hay datos. Ve a <strong>Cargar Libro</strong> para comenzar.</p>
       </div>
       <div id="dashboard-content" style="display:none;">
+        
+        <!-- Cascada visual (Waterfall) superior -->
+        <div id="waterfall-container" style="margin-bottom:24px;"></div>
+
         <!-- KPI universales -->
         <div class="kpi-grid" id="kpi-universal"></div>
         <!-- KPI por perfil -->
@@ -256,6 +260,10 @@
           <h2 style="font-family:var(--font-display);font-size:1rem;color:var(--text-secondary);margin-bottom:14px;text-transform:uppercase;letter-spacing:0.08em;" id="kpi-perfil-title">KPIs del Perfil</h2>
           <div class="kpi-grid" id="kpi-perfil"></div>
         </div>
+        
+        <!-- Narrative Engine -->
+        <div id="narrative-container"></div>
+
         <!-- PyG mensual -->
         <div class="card" style="margin-top:24px;">
           <div class="card-title">📈 PyG Analítica Mensual</div>
@@ -334,6 +342,7 @@
 <script src="js/forecaster.js"></script>
 <script src="js/session.js"></script>
 <script src="js/exporter.js"></script>
+<script src="js/narrative.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
