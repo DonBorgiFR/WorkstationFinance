@@ -513,6 +513,29 @@ function renderDashboard() {
   if (!STATE.analysisResult) return;
   const data = STATE.analysisResult;
   const profile = STATE.selectedProfile;
+  const confidence = data.confidence || {};
+
+  // Banner de Confianza (Nuevo Fase 5)
+  const banner = document.getElementById('dashboard-confidence-banner');
+  if (banner) {
+    if (confidence.confidenceLevel !== 'reliable') {
+      const colors = { reservations: '#f59e0b', indicative: '#f97316', blocked: '#ef4444' };
+      banner.style.display = 'block';
+      banner.style.background = `${colors[confidence.confidenceLevel]}15`;
+      banner.style.border = `1px solid ${colors[confidence.confidenceLevel]}40`;
+      banner.style.color = colors[confidence.confidenceLevel];
+      banner.innerHTML = `
+        <div style="display:flex; align-items:center; gap:12px; padding:12px 16px; border-radius:var(--radius-sm);">
+          <span style="font-size:1.2rem;">⚠️</span>
+          <div style="font-size:0.85rem; flex:1;">
+            <strong>Análisis ${confidence.confidenceLabel}:</strong> ${confidence.analysisLimitations.join(' ')}
+          </div>
+        </div>
+      `;
+    } else {
+      banner.style.display = 'none';
+    }
+  }
 
   const title = document.getElementById('dashboard-title');
   const subtitle = document.getElementById('dashboard-subtitle');
@@ -525,7 +548,7 @@ function renderDashboard() {
   document.getElementById('dashboard-content').style.display = 'block';
 
   // Trust Score
-  renderTrustScore(data.confidence || { trustScore: data.meta.trustScore || 0, confidenceLabel: '', confidenceLevel: 'reliable' });
+  renderTrustScore(data.confidence || { trustScore: 0, confidenceLabel: '', confidenceLevel: 'reliable' });
 
   // Audit Trail
   renderAuditTrail();
@@ -548,7 +571,7 @@ function renderDashboard() {
     let desc = kpi.desc;
 
     // Lógica para EBITDA Sospechoso
-    if (kpi.id === 'ebitda' && data.totales.ebitdaSuspect) {
+    if (kpi.id === 'ebitda' && confidence.ebitdaSuspect) {
       status = 'danger';
       pulseClass = 'pulse-danger';
       desc = '⚠️ EBITDA Sospechoso: Anomalías graves invalidan la integridad de esta métrica.';
@@ -558,7 +581,7 @@ function renderDashboard() {
       <div class="kpi-card status-${status} ${pulseClass}" title="${desc}">
         <div class="kpi-label">${kpi.label}</div>
         <div class="kpi-value">${formatted}</div>
-        <div class="kpi-sub" style="${(kpi.id === 'ebitda' && data.totales.ebitdaSuspect) ? 'color: var(--danger)' : ''}">${desc}</div>
+        <div class="kpi-sub" style="${(kpi.id === 'ebitda' && confidence.ebitdaSuspect) ? 'color: var(--danger)' : ''}">${desc}</div>
         <div class="kpi-status">${getStatusIcon(status)}</div>
       </div>
     `;
@@ -822,10 +845,9 @@ function renderTrustScore(confidence) {
   const statusEl = document.getElementById('trust-score-status');
   if (!el || !statusEl) return;
 
-  // Compatibilidad: acepta objeto confidence o número legacy
-  const score = typeof confidence === 'object' ? confidence.trustScore : confidence;
-  const confLabel = typeof confidence === 'object' ? confidence.confidenceLabel : '';
-  const confLevel = typeof confidence === 'object' ? confidence.confidenceLevel : 'reliable';
+  const score = confidence.trustScore;
+  const confLabel = confidence.confidenceLabel;
+  const confLevel = confidence.confidenceLevel;
 
   el.textContent = score;
 
@@ -861,14 +883,14 @@ function renderAuditTrail() {
 
 // ---- Render: Hallazgos Accionables ----
 const FINDING_RECOMMENDATIONS = {
-  'cifras_redondas':      { impacto: 'Posible estimación contable o facturación ficticia.', rec: 'Solicitar desglose de facturas con importes múltiplos de 500/1000€.', accion: 'Revisión documental' },
-  'facturas_domingo':     { impacto: 'Irregularidad temporal en registros contables.', rec: 'Verificar si el software contable auto-fecha o si hay manipulación manual.', accion: 'Entrevista con contable' },
-  'duplicados_exactos':   { impacto: 'Doble contabilización infla gastos o ingresos reales.', rec: 'Cruzar con extractos bancarios para confirmar unicidad del pago.', accion: 'Conciliación bancaria' },
-  'margen_bruto_negativo':{ impacto: 'La empresa vende por debajo de su coste directo.', rec: 'Revisar política de precios y estructura de costes de aprovisionamiento.', accion: 'Análisis de pricing' },
-  'cliente_unico':        { impacto: 'Dependencia comercial extrema. Riesgo de colapso si se pierde el cliente.', rec: 'Exigir plan de diversificación de cartera como condición de financiación.', accion: 'Plan de diversificación' },
-  'cuota_personal_critica':{ impacto: 'El modelo de negocio no escala; cada euro de ingreso se consume en nóminas.', rec: 'Evaluar automatización, externalización o renegociación salarial.', accion: 'Optimización OpEx' },
-  'asiento_descuadrado':  { impacto: 'Invalida la integridad del libro mayor completo.', rec: 'No proceder con análisis hasta corregir descuadres. Devolver al contable.', accion: 'Bloqueo y corrección' },
-  'ebitda_suspect':       { impacto: 'Las métricas de rentabilidad no son fiables para decisiones de inversión.', rec: 'Presentar EBITDA con disclaimer de sospecha en informes a terceros.', accion: 'Disclaimer en reporting' }
+  'cifras_redondas':      { impacto: 'Posible estimación contable o facturación ficticia.', rec: 'Solicitar desglose de facturas.', accion: 'Revisión documental', efectoFinanciacion: 'Riesgo reputacional alto en due diligence.' },
+  'facturas_domingo':     { impacto: 'Irregularidad temporal en registros.', rec: 'Verificar software contable.', accion: 'Entrevista', efectoFinanciacion: 'Cuestiona el control interno de la compañía.' },
+  'duplicados_exactos':   { impacto: 'Doble contabilización infla gastos/ingresos.', rec: 'Conciliación bancaria.', accion: 'Ajuste contable', efectoFinanciacion: 'Deteriora la fiabilidad del EBITDA histórico.' },
+  'margen_bruto_negativo':{ impacto: 'Venta por debajo de coste directo.', rec: 'Revisar pricing y COGS.', accion: 'Análisis pricing', efectoFinanciacion: 'Invalida elegibilidad ENISA por modelo no viable.' },
+  'cliente_unico':        { impacto: 'Dependencia comercial extrema (>70%).', rec: 'Plan de diversificación.', accion: 'Estrategia comercial', efectoFinanciacion: 'Riesgo de concentración crítico para inversores.' },
+  'cuota_personal_critica':{ impacto: 'Modelo no escalable; ingresos consumidos por nóminas.', rec: 'Optimización OpEx.', accion: 'Reestructuración', efectoFinanciacion: 'Dificulta la justificación de Neotec/I+D.' },
+  'asiento_descuadrado':  { impacto: 'Invalida la integridad del libro mayor.', rec: 'Corregir descuadres.', accion: 'Bloqueo', efectoFinanciacion: 'Motivo de rechazo automático en cualquier auditoría.' },
+  'ebitda_suspect':       { impacto: 'Métricas de rentabilidad no fiables.', rec: 'Presentar con disclaimer.', accion: 'Disclaimer', efectoFinanciacion: 'Afecta directamente al cálculo del préstamo ENISA.' }
 };
 
 function renderActionableFindings(anomalies) {
@@ -876,7 +898,6 @@ function renderActionableFindings(anomalies) {
   const content = document.getElementById('actionable-findings-content');
   if (!section || !content) return;
 
-  // Filtrar solo high y critical
   const actionable = anomalies.filter(a => a.severity === 'high' || a.severity === 'critical');
   if (!actionable.length) {
     section.style.display = 'none';
@@ -884,14 +905,6 @@ function renderActionableFindings(anomalies) {
   }
 
   section.style.display = 'block';
-
-  // Añadir hallazgo de EBITDA suspect si aplica
-  if (STATE.analysisResult?.totales?.ebitdaSuspect) {
-    const alreadyHas = actionable.some(a => a.message.includes('EBITDA'));
-    if (!alreadyHas) {
-      actionable.push({ severity: 'high', message: 'EBITDA marcado como sospechoso', detail: 'Demasiadas anomalías graves invalidan la fiabilidad del EBITDA calculado.' });
-    }
-  }
 
   content.innerHTML = `
     <div class="table-wrap">
@@ -901,25 +914,24 @@ function renderActionableFindings(anomalies) {
             <th style="width:28px;"></th>
             <th>Hallazgo</th>
             <th>Impacto</th>
+            <th>Efecto en Financiación</th>
             <th>Severidad</th>
-            <th>Recomendación</th>
             <th>Acción</th>
           </tr>
         </thead>
         <tbody>
           ${actionable.map((a, i) => {
-            // Intentar asociar a una regla conocida
-            const ruleId = matchFindingToRule(a.message);
-            const rec = FINDING_RECOMMENDATIONS[ruleId] || { impacto: a.detail, rec: 'Revisar manualmente.', accion: 'Investigar' };
+            const ruleId = a.id; // Uso directo del ID del contrato (Hardening Fase 5)
+            const rec = FINDING_RECOMMENDATIONS[ruleId] || { impacto: a.detail, efectoFinanciacion: 'Deteriora la credibilidad del análisis.', accion: 'Investigar' };
             const sevIcon = a.severity === 'critical' ? '⛔' : '🔴';
             const sevLabel = a.severity === 'critical' ? 'Crítica' : 'Alta';
             return `<tr>
               <td>${sevIcon}</td>
-              <td><strong>${a.message}</strong><br><span style="opacity:0.7;font-size:0.78rem;">${a.detail}</span></td>
+              <td><strong>${a.message}</strong></td>
               <td style="font-size:0.78rem;">${rec.impacto}</td>
+              <td style="font-size:0.78rem;color:var(--amber);font-weight:600;">${rec.efectoFinanciacion}</td>
               <td><span style="font-weight:700;color:${a.severity === 'critical' ? 'var(--danger)' : '#fca5a5'}">${sevLabel}</span></td>
-              <td style="font-size:0.78rem;">${rec.rec}</td>
-              <td><span style="background:rgba(255,255,255,0.08);padding:3px 8px;border-radius:4px;font-size:0.75rem;white-space:nowrap;">${rec.accion}</span></td>
+              <td><span style="background:rgba(255,255,255,0.08);padding:3px 8px;border-radius:4px;font-size:0.75rem;">${rec.accion}</span></td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -927,18 +939,7 @@ function renderActionableFindings(anomalies) {
     </div>`;
 }
 
-function matchFindingToRule(message) {
-  const msg = message.toLowerCase();
-  if (msg.includes('redonda'))      return 'cifras_redondas';
-  if (msg.includes('domingo'))      return 'facturas_domingo';
-  if (msg.includes('duplicado'))    return 'duplicados_exactos';
-  if (msg.includes('margen bruto')) return 'margen_bruto_negativo';
-  if (msg.includes('concentración'))return 'cliente_unico';
-  if (msg.includes('personal'))     return 'cuota_personal_critica';
-  if (msg.includes('desbalanceado') || msg.includes('descuadra')) return 'asiento_descuadrado';
-  if (msg.includes('ebitda'))       return 'ebitda_suspect';
-  return '';
-}
+// matchFindingToRule eliminado (Sustituido por mapeo directo de IDs en Fase 5 Hardening)
 
 // ---- Render: Biblioteca de Reglas de Anomalía ----
 const RULE_DESCRIPTIONS = {

@@ -197,6 +197,7 @@ function detectAnomalies(entries, byMonth) {
     const diff = Math.abs(totalDebe - totalHaber);
     if (diff > 1) { // tolerancia 1€ por redondeos
       anomalies.push({
+        id: 'descuadre_contable',
         severity: 'high',
         month: mk,
         message: `Descuadre contable en ${mk}`,
@@ -214,6 +215,7 @@ function detectAnomalies(entries, byMonth) {
   );
   if (monthsWithAmort.length > 0 && monthsWithoutAmort.length > 0) {
     anomalies.push({
+      id: 'meses_sin_amortizacion',
       severity: 'medium',
       month: monthsWithoutAmort.join(', '),
       message: 'Meses sin amortización cuando otros sí la registran',
@@ -231,6 +233,7 @@ function detectAnomalies(entries, byMonth) {
       const pct = Math.abs((ingActual - ingPrev) / ingPrev) * 100;
       if (pct > 40) {
         anomalies.push({
+          id: 'variacion_brusca_ingresos',
           severity: 'medium',
           month: mk,
           message: `Variación brusca en ingresos (${pct.toFixed(0)}%)`,
@@ -244,6 +247,7 @@ function detectAnomalies(entries, byMonth) {
   const hasResultados = entries.some(e => e.cuenta.startsWith('129'));
   if (hasResultados) {
     anomalies.push({
+      id: 'cuenta_129_detectada',
       severity: 'low',
       month: 'General',
       message: 'Se detectaron apuntes en cuenta 129 (Resultado del ejercicio)',

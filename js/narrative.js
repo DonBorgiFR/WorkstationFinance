@@ -1,53 +1,57 @@
-/**
- * narrative.js — Narrative Engine (Auto-Insights)
- * Genera resúmenes ejecutivos en texto a partir del análisis financiero.
- */
-
 function buildNarrative(data, forecast, scoring) {
   if (!data) return { financiero: '', estrategico: '' };
 
   const fmt = v => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(v) + '€';
   const pct = v => (v * 100).toFixed(1) + '%';
   
-  const { totales, balance, pygMensual } = data;
+  const { totales, confidence, pygMensual } = data;
   const meses = Object.keys(pygMensual).sort();
   const nMeses = meses.length;
   
   const margenBrutoP = totales.ingresos > 0 ? (totales.ingresos - totales.cogs) / totales.ingresos : 0;
-  const opexTotal = totales.gastos; // (excluyendo cogs que ya no está en totales.gastos o sí, veamos. En app.js totalGastos incluia cogs. 
-  // Wait, in analyzer.js: totalGastos = cogs + personal + marketing + serviciosOp + tributos + amort + gF.
-  // Opex puro = totalGastos - cogs - amort - gF
   const opexOperativo = totales.gastos - totales.cogs - (totales.amortizacion || 0) - (totales.gastosFinancieros || 0);
-  const pesoPersonal = opexOperativo > 0 ? (totales.gastosPorGrupo?.['64'] || 0) / opexOperativo : 0; // Aproximación
-  // Mejor calcular personal exacto:
   const totalPersonal = Object.values(pygMensual).reduce((s, m) => s + m.personal, 0);
   const pesoPersonalReal = opexOperativo > 0 ? totalPersonal / opexOperativo : 0;
 
   const runwayBase = forecast?.scenarios?.base?.findIndex(r => r.caja < 0);
   const mesesRunwayText = runwayBase !== undefined && runwayBase !== -1 ? `${runwayBase + 1} meses` : '> 12 meses';
   
+  // ---- 0. Disclaimer de Confianza (Nuevo) ----
+  let txtDisclaimer = "";
+  if (confidence?.confidenceLevel !== 'reliable') {
+    const labels = { reservations: 'CON RESERVAS', indicative: 'ORIENTATIVO', blocked: 'DIAGNÓSTICO ÚNICAMENTE' };
+    txtDisclaimer = `> ⚠️ **ANÁLISIS ${labels[confidence.confidenceLevel]}**: ${confidence.analysisLimitations.join(' ')}\n\n`;
+  }
+
   // ---- 1. Resumen Estrictamente Financiero ----
-  let txtFinanciero = `**SITUACIÓN DE LIQUIDEZ Y RENTABILIDAD**\n`;
-  txtFinanciero += `Durante el periodo analizado (${nMeses} meses), la empresa ha registrado unos ingresos totales de ${fmt(totales.ingresos)} frente a unos costes operativos (OPEX) estimados en ${fmt(opexOperativo)}. El Margen Bruto se sitúa en un ${pct(margenBrutoP)}, reflejando el coste directo de la entrega del servicio/producto.\n\n`;
-  txtFinanciero += `El EBITDA acumulado del periodo es de ${fmt(totales.ebitda)}. La estructura de costes fijos está dominada por los gastos de personal, que representan un ${pct(pesoPersonalReal)} del OPEX total.\n\n`;
+  let txtFinanciero = txtDisclaimer;
+  txtFinanciero += `**SITUACIÓN DE LIQUIDEZ Y RENTABILIDAD**\n`;
+  txtFinanciero += `Durante el periodo analizado (${nMeses} meses), la empresa ha registrado unos ingresos totales de ${fmt(totales.ingresos)} frente a unos costes operativos (OPEX) estimados en ${fmt(opexOperativo)}. El Margen Bruto se sitúa en un ${pct(margenBrutoP)}.\n\n`;
+  
+  if (confidence?.ebitdaSuspect) {
+    txtFinanciero += `⚠️ **Aviso de Integridad**: El EBITDA calculado (${fmt(totales.ebitda)}) presenta dudas razonables debido a la concentración de anomalías en el libro diario. Se recomienda no utilizar esta métrica como base única para valoraciones sin una auditoría previa.\n\n`;
+  } else {
+    txtFinanciero += `El EBITDA acumulado del periodo es de ${fmt(totales.ebitda)}. La estructura de costes fijos está dominada por los gastos de personal, que representan un ${pct(pesoPersonalReal)} del OPEX operativo.\n\n`;
+  }
+
   txtFinanciero += `**POSICIÓN DE CAJA Y RUNWAY**\n`;
-  txtFinanciero += `La posición de tesorería a cierre del último mes analizado es de ${fmt(totales.cajaFinal)}. Con un Burn Rate Neto promedio de ${fmt(totales.burnRateNeto)}/mes, la proyección base indica un runway estimado de ${mesesRunwayText} antes de una posible rotura de caja, asumiendo un crecimiento vegetativo y sin inyecciones de capital externas.`;
+  txtFinanciero += `La posición de tesorería a cierre del último mes analizado es de ${fmt(totales.cajaFinal)}. Con un Burn Rate Neto promedio de ${fmt(totales.burnRateNeto)}/mes, la proyección base indica un runway estimado de ${mesesRunwayText}.`;
 
   // ---- 2. Visión Estratégica y Consultiva ----
   let txtEstrategico = `**DIAGNÓSTICO Y ROADMAP**\n`;
   
   // Diagnóstico de márgenes
   if (margenBrutoP < 0.4) {
-    txtEstrategico += `El margen bruto actual (${pct(margenBrutoP)}) es bajo para sostener un escalado acelerado. Antes de inyectar capital en marketing (CAC), es imperativo optimizar el COGS o revisar la política de pricing para ganar holgura operativa. `;
+    txtEstrategico += `El margen bruto actual (${pct(margenBrutoP)}) es bajo para sostener un escalado acelerado. Antes de inyectar capital en marketing (CAC), es imperativo optimizar el COGS o revisar la política de pricing. `;
   } else if (margenBrutoP > 0.7) {
-    txtEstrategico += `Excelente salud de margen bruto (${pct(margenBrutoP)}), típico de modelos altamente escalables (ej. SaaS). Cada euro de nueva venta fluye casi directamente a cubrir los costes estructurales, lo que valida la economía unitaria. `;
+    txtEstrategico += `Excelente salud de margen bruto (${pct(margenBrutoP)}), típico de modelos altamente escalables. Cada euro de nueva venta fluye casi directamente a cubrir los costes estructurales. `;
   }
 
   // Diagnóstico de Runway
   if (runwayBase !== undefined && runwayBase !== -1 && runwayBase < 6) {
-    txtEstrategico += `\n\n⚠️ **Riesgo Inminente de Caja**: El runway proyectado es inferior a 6 meses. Se requiere una estrategia de contención de OPEX (freeze de contrataciones no críticas) en paralelo a una activación inmediata de rondas puente o financiación alternativa a corto plazo.\n\n`;
+    txtEstrategico += `\n\n⚠️ **Riesgo Inminente de Caja**: El runway proyectado es inferior a 6 meses. Se requiere una estrategia de contención de OPEX en paralelo a una activación de rondas puente o financiación alternativa.\n\n`;
   } else {
-    txtEstrategico += `\n\nEl runway actual proporciona suficiente margen de maniobra (ventana > 6 meses) para ejecutar la hoja de ruta estratégica sin presión de caja crítica a cortísimo plazo, permitiendo negociar financiación desde una posición de mayor fortaleza.\n\n`;
+    txtEstrategico += `\n\nEl runway actual proporciona suficiente margen de maniobra (ventana > 6 meses) para ejecutar la hoja de ruta estratégica sin presión de caja crítica.\n\n`;
   }
 
   // Financiación Pública
@@ -57,16 +61,25 @@ function buildNarrative(data, forecast, scoring) {
     const cdtiOk = scoring.cdti?.elegible;
     
     if (enisaOk && cdtiOk) {
-      txtEstrategico += `La empresa presenta un perfil idóneo para plantear una estrategia de financiación mixta. Se recomienda sincronizar la solicitud de CDTI Neotec (para financiar intensidad de I+D) con ENISA Emprendedores (para complementar el OPEX general y marketing).`;
+      txtEstrategico += `La empresa presenta un perfil idóneo para plantear una estrategia de financiación mixta (ENISA + CDTI Neotec).`;
     } else if (enisaOk) {
-      txtEstrategico += `El perfil patrimonial actual habilita a la empresa para solicitar ENISA Emprendedores. Al cumplir el ratio de fondos propios, esta vía representa la opción menos dilutiva para extender el runway entre 4 y 6 meses adicionales.`;
+      txtEstrategico += `El perfil patrimonial actual habilita a la empresa para solicitar ENISA Emprendedores, representando la opción menos dilutiva para extender el runway.`;
     } else if (cdtiOk) {
-      txtEstrategico += `Aunque el perfil patrimonial puede limitar algunas opciones de deuda pública, el fuerte componente técnico y el enfoque I+D abren la puerta a subvenciones competitivas como CDTI Neotec, que actuarían como un espaldarazo de caja puro.`;
+      txtEstrategico += `El fuerte componente técnico abre la puerta a subvenciones competitivas como CDTI Neotec, que actuarían como un espaldarazo de caja puro.`;
     } else {
-      txtEstrategico += `Actualmente, la estructura financiera (específicamente la situación de fondos propios o antigüedad) actúa como barrera para el acceso a instrumentos públicos directos como ENISA o CDTI. El paso previo necesario es una ronda de capital (equity) que fortalezca el patrimonio neto antes de intentar apalancar deuda pública.`;
+      txtEstrategico += `La estructura financiera actual actúa como barrera para el acceso a instrumentos públicos directos. El paso previo necesario es una ronda de capital (equity) que fortalezca el patrimonio neto.`;
     }
+  }
+
+  // ---- 3. Readiness para Financiación (Nuevo) ----
+  txtEstrategico += `\n\n**READINESS PARA FINANCIACIÓN**\n`;
+  const flags = confidence?.fundingReadinessFlags;
+  if (flags?.requiresManualReview) {
+    txtEstrategico += `❌ **No apto para presentación inmediata**. El nivel de incidencias en el libro diario requiere una limpieza contable previa antes de presentar el expediente a entidades financieras o inversores para evitar un rechazo por due diligence.`;
+  } else if (flags?.scoringDefensible) {
+    txtEstrategico += `✅ **Apto para inicio de expedientes**. La calidad del dato es suficiente para defender el business case ante ENISA/CDTI, aunque se recomienda monitorizar las anomalías menores reportadas.`;
   } else {
-    txtEstrategico += `Para determinar la estrategia óptima de financiación pública (ENISA/CDTI), se recomienda completar el 'Scoring Público' en el panel de herramientas.`;
+    txtEstrategico += `La elegibilidad está condicionada a la corrección de los descuadres detectados en el proceso de ingesta.`;
   }
 
   return { financiero: txtFinanciero, estrategico: txtEstrategico };

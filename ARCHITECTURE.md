@@ -10,15 +10,14 @@ graph TD
     B -->|ParsedLedger + anomalías| C{STATE.parsedLedger}
     C -->|Mapeo PGC + perfil| D(analyzer.js)
     D -->|ANOMALY_RULES engine| E[runAnomalyEngine]
-    E -->|Trust Score + ebitdaSuspect| F{STATE.analysisResult}
+    E -->|Confidence Engine| F[getConfidenceMeta]
+    F -->|Anomalies post-análisis| G{STATE.analysisResult}
     
-    F --> G[Dashboard: Trust Score + Audit Trail]
-    F --> H[Hallazgos Accionables]
-    F --> I[KPIs + PyG + Waterfall]
-    F --> J[forecaster.js → 3 escenarios]
-    F --> K[scorer.js → ENISA / CDTI]
-    F --> L[exporter.js → PDF con portada + Excel vivo]
-    F --> M[session.js → .aptki con Audit Trail]
+    G --> H[Dashboard: Banner Confianza + Score]
+    G --> I[Narrativa: Disclaimers + Readiness]
+    G --> J[forecaster.js → Fallbacks estadísticos]
+    G --> K[scorer.js → Penalización automática]
+    G --> L[exporter.js → Sello condicional PDF]
 ```
 
 ## Módulos
@@ -32,36 +31,27 @@ graph TD
 - Convierte cuentas PGC en modelo de negocio (Ventas, COGS, Personal)
 - Motor de devengo (Accruals Engine) para normalizar EBITDA
 - **Motor de Reglas Declarativo** (`ANOMALY_RULES`) — 7 reglas independientes
-- Calcula **Trust Score** (0–100) y flag **ebitdaSuspect**
+- **Confidence Engine** (`getConfidenceMeta`) — Centraliza la lógica de fiabilidad:
+  - Calcula `trustScore` y `confidenceLevel`.
+  - Determina `forecastMode` (fallbacks estadísticos).
+  - Calcula `scoringPenalty` para ENISA/CDTI.
+  - Genera `fundingReadinessFlags`.
 - **Output:** `AnalysisResult` → ver `DATA_CONTRACT.md`
-
-### profiles.js — Perfiles Sectoriales
-- Definición de perfiles (SaaS, Industrial, Servicios, Genérico)
-- KPIs universales + KPIs específicos por sector
-- Funciones de utilidad: `getKpiStatus`, `formatKpiValue`, `getStatusIcon`
 
 ### app.js — Controlador SPA
 - Navegación entre secciones, gestión de `STATE`
 - `logAudit()` — Registro de eventos del pipeline
-- Renderizado: Trust Score, Audit Trail, Hallazgos Accionables, KPIs, PyG, Waterfall
-- Biblioteca de reglas visible (`renderRulesLibrary`)
-- Bloqueo de dashboard si hay anomalías críticas
-
-### Módulos Satélite
-| Módulo | Responsabilidad |
-|--------|----------------|
-| `forecaster.js` | Proyección 12M (base/optimista/pesimista) |
-| `scorer.js` | Scoring ENISA + CDTI con inputs mixtos |
-| `narrative.js` | Texto analítico automático |
-| `checklist.js` | Filtro Día 1 con auto-completado |
-| `knowledge.js` | Guía de financiación |
-| `exporter.js` | PDF (portada + dashboard) + Excel (fórmulas vivas) |
-| `session.js` | Persistencia .aptki con Audit Trail |
+- Renderizado: Banner de Confianza, Trust Score, Audit Trail, Hallazgos (con efecto en financiación)
+- Bloqueo visual del dashboard si la confianza es baja (Watermark)
 
 ## Reglas Arquitectónicas
 
-1. **Inmutabilidad** — `analyzer.js` nunca muta `ParsedLedger`. Siempre devuelve objetos nuevos.
-2. **Separación DOM/Lógica** — `parser.js` y `analyzer.js` son librerías puras sin conocimiento del HTML.
-3. **Local-First** — Todo ocurre en el navegador. Confidencialidad nivel bancario.
-4. **Contrato de datos** — Todos los consumidores de `AnalysisResult` deben respetar `DATA_CONTRACT.md`.
-5. **Reglas extensibles** — Añadir una regla = pushear un objeto a `ANOMALY_RULES`. Sin tocar el motor.
+1. **Inmutabilidad Estricta** — `analyzer.js` nunca muta `ParsedLedger.anomalies`. Las anomalías del análisis se combinan en un nuevo array en `AnalysisResult`.
+2. **Propagación de Confianza** — Ningún módulo (forecast, scoring, narrative) debe calcular su propia fiabilidad. Todos deben consumir el bloque `confidence` del `AnalysisResult`.
+3. **Separación DOM/Lógica** — `parser.js` y `analyzer.js` son librerías puras.
+4. **Local-First** — Todo ocurre en el navegador. Confidencialidad nivel bancario.
+5. **Fallbacks Estadísticos** — El sistema debe degradar su precisión (ej. mediana en lugar de promedio) si la confianza del dato es baja, informando siempre al consultor.
+## Notas de Evolución
+
+- **Deduplicación de Anomalías:** Actualmente se realiza por `id` único. Para futuras versiones con libros multi-año o multi-instancia, se debe evolucionar a un esquema de `id + contexto` (ej. `id + mes` o `id + cuenta`) para evitar una deduplicación excesivamente agresiva que oculte recurrencias legítimas.
+- **Trazabilidad:** Se mantiene el `id` estable en todo el pipeline para asegurar que la UI (`app.js`) y los exportadores puedan mapear hallazgos técnicos a recomendaciones de negocio sin dependencias de texto.

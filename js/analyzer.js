@@ -421,7 +421,8 @@ function runAnomalyEngine(entries, pygMensual, categoryMap) {
     try {
       const results = rule.check(entries, pygMensual, categoryMap);
       if (results && results.length > 0) {
-        allAnomalies.push(...results);
+        // Inyectamos el ID de la regla en el hallazgo para trazabilidad técnica (Fase 5 Hardening)
+        allAnomalies.push(...results.map(r => ({ ...r, id: rule.id })));
       }
     } catch (e) {
       console.warn(`Error ejecutando regla de anomalía: ${rule.id}`, e);
@@ -463,7 +464,7 @@ function getConfidenceMeta(trustScore, anomalies, ebitdaSuspect) {
   if (confidenceLevel === 'indicative' || confidenceLevel === 'blocked') {
     analysisLimitations.push('El análisis no es defensable sin revisión manual previa del libro diario.');
   }
-  const hasDescuadre = anomalies.some(a => a.message.includes('Descuadre contable') || a.message.includes('desbalanceado'));
+  const hasDescuadre = anomalies.some(a => a.id === 'asiento_descuadrado' || a.id === 'descuadre_contable');
   if (hasDescuadre) {
     analysisLimitations.push('Existen descuadres contables que invalidan la integridad aritmética del libro.');
   }
@@ -510,13 +511,25 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
   // Detección de Anomalías Analíticas (Aptki Pro)
   // INMUTABILIDAD: NO mutamos parsedLedger.anomalies. Combinamos en array nuevo.
   const analyzerAnomalies = runAnomalyEngine(entries, pygMensual, categoryMap);
-  const parserMessages = new Set(parsedLedger.anomalies.map(a => a.message));
-  const deduplicatedNew = analyzerAnomalies.filter(na => !parserMessages.has(na.message));
+  const parserIds = new Set(parsedLedger.anomalies.map(a => a.id));
+  const deduplicatedNew = analyzerAnomalies.filter(na => !parserIds.has(na.id));
   const allAnomalies = [...parsedLedger.anomalies, ...deduplicatedNew];
 
   // Verificar si hay demasiadas anomalías graves para marcar el EBITDA como sospechoso
   const highOrCriticalCount = allAnomalies.filter(a => a.severity === 'high' || a.severity === 'critical').length;
   const ebitdaSuspect = highOrCriticalCount >= 3;
+  
+  if (ebitdaSuspect) {
+    // Si ya existe una anomalía de EBITDA Sospechoso por reglas previas, no la duplicamos
+    if (!allAnomalies.some(a => a.id === 'ebitda_suspect')) {
+      allAnomalies.push({
+        id: 'ebitda_suspect',
+        severity: 'high',
+        message: 'Integridad del EBITDA comprometida',
+        detail: 'El elevado número de anomalías graves detectadas resta fiabilidad a la métrica de EBITDA.'
+      });
+    }
+  }
 
   // Totales del periodo
   const totalIngresos = Object.values(pygMensual).reduce((s, m) => s + m.totalIngresos, 0);
@@ -572,8 +585,8 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
     else if (a.severity === 'medium') trustScore -= 5;
     else if (a.severity === 'low') trustScore -= 2;
   });
-  // Penalización por descuadres globales (anomalías del parser)
-  const hasDescuadreGeneral = allAnomalies.some(a => a.message.includes('Descuadre contable'));
+  // Penalización por descuadres globales (anomalías del parser o del analyzer)
+  const hasDescuadreGeneral = allAnomalies.some(a => a.id === 'asiento_descuadrado' || a.id === 'descuadre_contable');
   if (hasDescuadreGeneral) trustScore -= 20;
   trustScore = Math.max(0, Math.floor(trustScore));
 
@@ -581,9 +594,9 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
   const confidence = getConfidenceMeta(trustScore, allAnomalies, ebitdaSuspect);
 
   const data = {
-    meta: { ...parsedLedger.meta, trustScore }, // trustScore en meta por compatibilidad transitoria
-    anomalies: allAnomalies,                    // Fuente canónica post-análisis (parser + analyzer)
-    confidence,                                 // Bloque propio de confianza
+    meta: { ...parsedLedger.meta }, // trustScore eliminado de meta (Legacy Phase 5)
+    anomalies: allAnomalies,        // Fuente canónica post-análisis (parser + analyzer)
+    confidence,                     // Única fuente de verdad para fiabilidad
     totales: {
       ingresos: totalIngresos,
       gastos: totalGastos,
@@ -593,8 +606,8 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
       cajaFinal,
       burnRateNeto,
       gastosPorGrupo,
-      saldoCuenta: saldoCuentaMap,
-      ebitdaSuspect // Mantenido en totales por compatibilidad transitoria
+      saldoCuenta: saldoCuentaMap
+      // ebitdaSuspect eliminado de totales (Legacy Phase 5)
     },
     balance,
     pygMensual,

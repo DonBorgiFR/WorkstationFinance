@@ -20,22 +20,35 @@ document.addEventListener('DOMContentLoaded', () => {
       
       const empresa = STATE.empresa.nombre || 'Empresa';
       const profile = STATE.selectedProfile?.name || '';
-      const meta = STATE.analysisResult.meta;
-      const ts = STATE.analysisResult.meta.trustScore ?? '--';
+      const data = STATE.analysisResult;
+      const confidence = data.confidence;
+      const ts = confidence?.trustScore ?? '--';
       const fecha = new Date().toLocaleDateString('es-ES', { year:'numeric', month:'long', day:'numeric' });
-      const anomCount = STATE.parsedLedger?.anomalies?.length || 0;
-      const highCount = (STATE.parsedLedger?.anomalies || []).filter(a => a.severity === 'high' || a.severity === 'critical').length;
+      const anomCount = data.anomalies?.length || 0;
+      const highCount = (data.anomalies || []).filter(a => a.severity === 'high' || a.severity === 'critical').length;
+
+      // Sello condicional
+      let sealHtml = '';
+      if (confidence?.confidenceLevel !== 'reliable') {
+        const color = confidence?.confidenceLevel === 'blocked' ? '#ef4444' : '#f59e0b';
+        sealHtml = `
+          <div style="margin-top:20px;border:3px solid ${color};color:${color};display:inline-block;padding:8px 20px;border-radius:8px;font-weight:900;text-transform:uppercase;transform:rotate(-3deg);font-family:Outfit,sans-serif;">
+            Análisis ${confidence?.confidenceLabel || 'Condicionado'}
+          </div>
+        `;
+      }
 
       cover.innerHTML = `
-        <div style="text-align:center;margin-bottom:60px;padding-top:80px;">
+        <div style="text-align:center;margin-bottom:40px;padding-top:60px;">
           <div style="font-family:Outfit,sans-serif;font-size:2.4rem;font-weight:800;color:#5eaab5;letter-spacing:-0.02em;">aptki</div>
           <div style="font-size:1rem;color:#94a3b8;margin-top:4px;">workstation · informe financiero</div>
         </div>
-        <div style="text-align:center;margin-bottom:50px;">
+        <div style="text-align:center;margin-bottom:30px;">
           <div style="font-family:Outfit,sans-serif;font-size:1.8rem;font-weight:700;">${empresa}</div>
           <div style="color:#94a3b8;margin-top:8px;">${profile} · ${fecha}</div>
+          ${sealHtml}
         </div>
-        <div style="display:flex;justify-content:center;gap:40px;margin-bottom:50px;">
+        <div style="display:flex;justify-content:center;gap:40px;margin-bottom:40px;">
           <div style="text-align:center;">
             <div style="font-size:0.75rem;text-transform:uppercase;color:#94a3b8;letter-spacing:0.05em;">Trust Score</div>
             <div style="font-family:Outfit,sans-serif;font-size:2.8rem;font-weight:800;color:${ts >= 80 ? '#10b981' : ts >= 50 ? '#f59e0b' : '#ef4444'};">${ts}</div>
@@ -48,7 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           <div style="text-align:center;">
             <div style="font-size:0.75rem;text-transform:uppercase;color:#94a3b8;letter-spacing:0.05em;">Meses</div>
-            <div style="font-family:Outfit,sans-serif;font-size:2.8rem;font-weight:800;">${meta.months?.length || 0}</div>
+            <div style="font-family:Outfit,sans-serif;font-size:2.8rem;font-weight:800;">${data.meta.months?.length || 0}</div>
             <div style="font-size:0.8rem;color:#94a3b8;">analizados</div>
           </div>
         </div>
@@ -121,6 +134,10 @@ function exportToExcel(data, forecast, scoring) {
       XLSX.utils.book_append_sheet(wb, wsForecast, "Forecast 12M");
     }
 
+    // 4. Pestaña: Calidad del Dato (Nuevo Fase 5)
+    const wsConf = buildConfidenceSheet(data);
+    XLSX.utils.book_append_sheet(wb, wsConf, "Calidad del Dato");
+
     // Exportar
     const fileName = `${STATE.empresa.nombre || 'modelo'}_financiero_aptki.xlsx`.replace(/[^a-z0-9]/gi, '_').toLowerCase();
     XLSX.writeFile(wb, fileName);
@@ -130,6 +147,36 @@ function exportToExcel(data, forecast, scoring) {
     console.error("Error al exportar Excel:", err);
     showToast('Error al generar Excel', 'error');
   }
+}
+
+/**
+ * buildConfidenceSheet(data)
+ */
+function buildConfidenceSheet(data) {
+  const conf = data.confidence || {};
+  const flags = conf.fundingReadinessFlags || {};
+  
+  const aoa = [
+    ["DIAGNÓSTICO DE INTEGRIDAD Y CONFIANZA"],
+    [],
+    ["Métrica", "Estado"],
+    ["Trust Score", { t: 'n', v: conf.trustScore || 0 }],
+    ["Nivel de Confianza", conf.confidenceLabel || '—'],
+    ["EBITDA Sospechoso", conf.ebitdaSuspect ? "SÍ" : "NO"],
+    [],
+    ["Limitaciones del Análisis", ""],
+    ...(conf.analysisLimitations || []).map(l => [l]),
+    [],
+    ["Readiness para Financiación", ""],
+    ["Scoring Defensible", flags.scoringDefensible ? "SÍ" : "NO"],
+    ["Forecast Defensible", flags.forecastDefensible ? "SÍ" : "NO"],
+    ["Narrativa Conclusiva", flags.narrativeConclusive ? "SÍ" : "NO"],
+    ["Requiere Revisión Manual", flags.requiresManualReview ? "SÍ" : "NO"]
+  ];
+  
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 35 }, { wch: 25 }];
+  return ws;
 }
 
 /**
