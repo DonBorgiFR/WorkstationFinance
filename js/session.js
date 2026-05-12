@@ -17,7 +17,7 @@ function exportSession() {
 
   // Clonamos el estado para limpiarlo de cosas que no queremos guardar (como archivos crudos)
   const sessionData = {
-    version: '1.0',
+    version: '1.1',
     timestamp: new Date().toISOString(),
     parsedLedger: STATE.parsedLedger,
     selectedProfileId: STATE.selectedProfile?.id,
@@ -26,7 +26,8 @@ function exportSession() {
     empresa: STATE.empresa,
     scoringInputs: STATE.scoringInputs,
     approvedAccruals: STATE.approvedAccruals,
-    forecastScenario: STATE.forecastScenario
+    forecastScenario: STATE.forecastScenario,
+    auditTrail: STATE.auditTrail
   };
 
   const dataStr = JSON.stringify(sessionData);
@@ -74,6 +75,8 @@ function importSession(file) {
       STATE.scoringInputs = data.scoringInputs || {};
       STATE.approvedAccruals = data.approvedAccruals || [];
       STATE.forecastScenario = data.forecastScenario || 'base';
+      STATE.auditTrail = data.auditTrail || [];
+      if (typeof logAudit === 'function') logAudit('Sesión restaurada', `Desde archivo ${file.name}`);
 
       // Restaurar perfil
       if (data.selectedProfileId) {

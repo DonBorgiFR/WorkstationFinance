@@ -13,7 +13,7 @@
   <!-- TOPBAR -->
   <header class="topbar">
     <div class="topbar-logo">
-      <img src="assets/logo.jpg" alt="APTKI Logo" onerror="this.style.display='none'" />
+      <img src="assets/logo.svg" alt="APTKI Logo" style="height:28px;width:auto;" onerror="this.style.display='none'" />
       <div class="brand">APTKI <span>Workstation</span></div>
     </div>
     <div class="topbar-sep"></div>
@@ -250,8 +250,33 @@
       </div>
       <div id="dashboard-content" style="display:none;">
         
+        <!-- Header Analítico: Trust Score & Audit Trail -->
+        <div style="display: flex; gap: 24px; margin-bottom: 24px; align-items: stretch; flex-wrap: wrap;">
+          
+          <!-- Trust Score Card -->
+          <div class="card" style="flex: 1; min-width: 250px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; margin: 0;">
+            <div style="font-size: 0.9rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Trust Score</div>
+            <div id="trust-score-value" style="font-size: 3.5rem; font-weight: 800; font-family: var(--font-display); line-height: 1;">--</div>
+            <div id="trust-score-status" style="font-size: 1rem; margin-top: 8px; font-weight: 600;">Evaluando...</div>
+          </div>
+
+          <!-- Audit Trail / Session Log -->
+          <div class="card" style="flex: 2; min-width: 350px; margin: 0;">
+            <div class="card-title" style="margin-bottom: 12px; font-size: 0.9rem;">📋 Audit Trail & Session Log</div>
+            <div id="audit-trail-content" style="font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary);">
+              <!-- Rendered by app.js -->
+            </div>
+          </div>
+        </div>
+
         <!-- Cascada visual (Waterfall) superior -->
         <div id="waterfall-container" style="margin-bottom:24px;"></div>
+
+        <!-- Panel de Hallazgos Accionables -->
+        <div class="card" id="actionable-findings-section" style="margin-bottom:24px; display:none; border-color: var(--danger);">
+          <div class="card-title" style="color: var(--danger);">🚨 Hallazgos Accionables</div>
+          <div id="actionable-findings-content"></div>
+        </div>
 
         <!-- KPI universales -->
         <div class="kpi-grid" id="kpi-universal"></div>

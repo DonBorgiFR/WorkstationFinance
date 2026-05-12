@@ -14,8 +14,18 @@ const STATE = {
   scoringInputs: {},
   scoringResult: null,
   forecastResult: null,
-  forecastScenario: 'base'
+  forecastScenario: 'base',
+  auditTrail: []
 };
+
+/** Registro de evento en Audit Trail */
+function logAudit(action, detail = '') {
+  STATE.auditTrail.push({
+    ts: new Date().toISOString(),
+    action,
+    detail
+  });
+}
 
 // ---- Toast ----
 function showToast(msg, type = 'info', ms = 3500) {
@@ -216,6 +226,7 @@ document.getElementById('btn-analizar').addEventListener('click', async () => {
     });
 
     STATE.parsedLedger = parsed;
+    logAudit('Archivo cargado', `${parsed.meta.fileName} · ${parsed.meta.totalEntries} asientos · ${parsed.meta.months.length} meses · ${parsed.anomalies.length} anomalías parser`);
 
     // Actualizar badge empresa (temporalmente hasta el dashboard)
     const nombre = STATE.empresa.nombre || parsed.meta.fileName;
@@ -464,6 +475,14 @@ document.getElementById('btn-goto-dashboard').addEventListener('click', () => {
   // Flag para el checklist
   STATE.accrualsReviewed = true;
 
+  // Audit trail
+  const remappedCount = STATE.customMapping ? Object.keys(STATE.customMapping).length : 0;
+  const accrualCount = (STATE.approvedAccruals || []).length;
+  logAudit('Perfil seleccionado', `${STATE.selectedProfile.name} (${STATE.selectedProfile.id})`);
+  if (remappedCount > 0) logAudit('Remapeo manual', `${remappedCount} cuentas reclasificadas`);
+  if (accrualCount > 0) logAudit('Devengos aprobados', `${accrualCount} periodificaciones aplicadas`);
+  logAudit('Dashboard generado', `Trust Score: ${STATE.analysisResult.meta.trustScore}/100 · EBITDA Suspect: ${STATE.analysisResult.totales.ebitdaSuspect ? 'SÍ' : 'NO'}`);
+
   // Pre-calcular scoring con defaults (inputs vacíos) para que el tab ya tenga datos
   STATE.scoringResult = scoreFinanciacion(STATE.analysisResult, STATE.scoringInputs || {});
 
@@ -498,6 +517,15 @@ function renderDashboard() {
 
   document.getElementById('dashboard-empty').style.display = 'none';
   document.getElementById('dashboard-content').style.display = 'block';
+
+  // Trust Score
+  renderTrustScore(data.meta.trustScore || 0);
+
+  // Audit Trail
+  renderAuditTrail();
+
+  // Hallazgos Accionables
+  renderActionableFindings(STATE.parsedLedger?.anomalies || []);
 
   // Waterfall y Narrative
   renderWaterfall(data);
@@ -779,6 +807,124 @@ function renderWaterfall(data) {
       </div>
     </div>
   `;
+}
+
+// ---- Render: Trust Score ----
+function renderTrustScore(score) {
+  const el = document.getElementById('trust-score-value');
+  const statusEl = document.getElementById('trust-score-status');
+  if (!el || !statusEl) return;
+
+  el.textContent = score;
+
+  let color, label;
+  if (score >= 80) { color = 'var(--green, #22c55e)'; label = 'Alta Fiabilidad'; }
+  else if (score >= 50) { color = 'var(--amber, #f59e0b)'; label = 'Fiabilidad Media'; }
+  else { color = 'var(--danger, #ef4444)'; label = 'Baja Fiabilidad'; }
+
+  el.style.color = color;
+  statusEl.textContent = label;
+  statusEl.style.color = color;
+}
+
+// ---- Render: Audit Trail ----
+function renderAuditTrail() {
+  const container = document.getElementById('audit-trail-content');
+  if (!container) return;
+  if (!STATE.auditTrail.length) {
+    container.innerHTML = '<span style="opacity:0.5;">Sin eventos registrados.</span>';
+    return;
+  }
+
+  container.innerHTML = STATE.auditTrail.map(ev => {
+    const time = new Date(ev.ts).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return `<div style="margin-bottom:4px;">
+      <span style="color:var(--cyan, #06b6d4); font-family:var(--font-mono, monospace); font-size:0.78rem;">${time}</span>
+      <strong style="color:var(--text-primary); margin:0 6px;">${ev.action}</strong>
+      <span>${ev.detail}</span>
+    </div>`;
+  }).join('');
+}
+
+// ---- Render: Hallazgos Accionables ----
+const FINDING_RECOMMENDATIONS = {
+  'cifras_redondas':      { impacto: 'Posible estimación contable o facturación ficticia.', rec: 'Solicitar desglose de facturas con importes múltiplos de 500/1000€.', accion: 'Revisión documental' },
+  'facturas_domingo':     { impacto: 'Irregularidad temporal en registros contables.', rec: 'Verificar si el software contable auto-fecha o si hay manipulación manual.', accion: 'Entrevista con contable' },
+  'duplicados_exactos':   { impacto: 'Doble contabilización infla gastos o ingresos reales.', rec: 'Cruzar con extractos bancarios para confirmar unicidad del pago.', accion: 'Conciliación bancaria' },
+  'margen_bruto_negativo':{ impacto: 'La empresa vende por debajo de su coste directo.', rec: 'Revisar política de precios y estructura de costes de aprovisionamiento.', accion: 'Análisis de pricing' },
+  'cliente_unico':        { impacto: 'Dependencia comercial extrema. Riesgo de colapso si se pierde el cliente.', rec: 'Exigir plan de diversificación de cartera como condición de financiación.', accion: 'Plan de diversificación' },
+  'cuota_personal_critica':{ impacto: 'El modelo de negocio no escala; cada euro de ingreso se consume en nóminas.', rec: 'Evaluar automatización, externalización o renegociación salarial.', accion: 'Optimización OpEx' },
+  'asiento_descuadrado':  { impacto: 'Invalida la integridad del libro mayor completo.', rec: 'No proceder con análisis hasta corregir descuadres. Devolver al contable.', accion: 'Bloqueo y corrección' },
+  'ebitda_suspect':       { impacto: 'Las métricas de rentabilidad no son fiables para decisiones de inversión.', rec: 'Presentar EBITDA con disclaimer de sospecha en informes a terceros.', accion: 'Disclaimer en reporting' }
+};
+
+function renderActionableFindings(anomalies) {
+  const section = document.getElementById('actionable-findings-section');
+  const content = document.getElementById('actionable-findings-content');
+  if (!section || !content) return;
+
+  // Filtrar solo high y critical
+  const actionable = anomalies.filter(a => a.severity === 'high' || a.severity === 'critical');
+  if (!actionable.length) {
+    section.style.display = 'none';
+    return;
+  }
+
+  section.style.display = 'block';
+
+  // Añadir hallazgo de EBITDA suspect si aplica
+  if (STATE.analysisResult?.totales?.ebitdaSuspect) {
+    const alreadyHas = actionable.some(a => a.message.includes('EBITDA'));
+    if (!alreadyHas) {
+      actionable.push({ severity: 'high', message: 'EBITDA marcado como sospechoso', detail: 'Demasiadas anomalías graves invalidan la fiabilidad del EBITDA calculado.' });
+    }
+  }
+
+  content.innerHTML = `
+    <div class="table-wrap">
+      <table style="font-size:0.82rem;">
+        <thead>
+          <tr>
+            <th style="width:28px;"></th>
+            <th>Hallazgo</th>
+            <th>Impacto</th>
+            <th>Severidad</th>
+            <th>Recomendación</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${actionable.map((a, i) => {
+            // Intentar asociar a una regla conocida
+            const ruleId = matchFindingToRule(a.message);
+            const rec = FINDING_RECOMMENDATIONS[ruleId] || { impacto: a.detail, rec: 'Revisar manualmente.', accion: 'Investigar' };
+            const sevIcon = a.severity === 'critical' ? '⛔' : '🔴';
+            const sevLabel = a.severity === 'critical' ? 'Crítica' : 'Alta';
+            return `<tr>
+              <td>${sevIcon}</td>
+              <td><strong>${a.message}</strong><br><span style="opacity:0.7;font-size:0.78rem;">${a.detail}</span></td>
+              <td style="font-size:0.78rem;">${rec.impacto}</td>
+              <td><span style="font-weight:700;color:${a.severity === 'critical' ? 'var(--danger)' : '#fca5a5'}">${sevLabel}</span></td>
+              <td style="font-size:0.78rem;">${rec.rec}</td>
+              <td><span style="background:rgba(255,255,255,0.08);padding:3px 8px;border-radius:4px;font-size:0.75rem;white-space:nowrap;">${rec.accion}</span></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function matchFindingToRule(message) {
+  const msg = message.toLowerCase();
+  if (msg.includes('redonda'))      return 'cifras_redondas';
+  if (msg.includes('domingo'))      return 'facturas_domingo';
+  if (msg.includes('duplicado'))    return 'duplicados_exactos';
+  if (msg.includes('margen bruto')) return 'margen_bruto_negativo';
+  if (msg.includes('concentración'))return 'cliente_unico';
+  if (msg.includes('personal'))     return 'cuota_personal_critica';
+  if (msg.includes('desbalanceado') || msg.includes('descuadra')) return 'asiento_descuadrado';
+  if (msg.includes('ebitda'))       return 'ebitda_suspect';
+  return '';
 }
 
 // ---- Init ----

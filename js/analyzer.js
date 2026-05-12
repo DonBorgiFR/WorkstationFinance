@@ -511,8 +511,22 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
   // Ingresos del último mes (para MRR)
   const lastMonthData = byMonth[lastMk] || [];
 
+  // ---- Trust Score ----
+  let trustScore = 100;
+  parsedLedger.anomalies.forEach(a => {
+    if (a.severity === 'critical') trustScore -= 30;
+    else if (a.severity === 'high') trustScore -= 15;
+    else if (a.severity === 'medium') trustScore -= 5;
+    else if (a.severity === 'low') trustScore -= 2;
+  });
+  // Penalización por descuadres globales (anomalías del parser)
+  const hasDescuadreGeneral = parsedLedger.anomalies.some(a => a.message.includes('Descuadre contable'));
+  if (hasDescuadreGeneral) trustScore -= 20;
+
+  trustScore = Math.max(0, Math.floor(trustScore));
+
   const data = {
-    meta: parsedLedger.meta,
+    meta: { ...parsedLedger.meta, trustScore },
     totales: {
       ingresos: totalIngresos,
       gastos: totalGastos,
@@ -522,7 +536,8 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
       cajaFinal,
       burnRateNeto,
       gastosPorGrupo,
-      saldoCuenta: saldoCuentaMap
+      saldoCuenta: saldoCuentaMap,
+      ebitdaSuspect // Flag de integridad
     },
     balance,
     pygMensual,
