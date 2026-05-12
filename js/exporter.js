@@ -11,25 +11,74 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnPdf) {
     btnPdf.addEventListener('click', () => {
       if (!STATE.analysisResult) return;
-      const element = document.getElementById('dashboard-content');
+      const dashContent = document.getElementById('dashboard-content');
+
+      // ---- Crear portada temporal ----
+      const cover = document.createElement('div');
+      cover.id = 'pdf-cover-page';
+      cover.style.cssText = 'background:#0A0A0A;color:#e2e8f0;padding:60px 40px;font-family:Inter,sans-serif;page-break-after:always;';
+      
+      const empresa = STATE.empresa.nombre || 'Empresa';
+      const profile = STATE.selectedProfile?.name || '';
+      const meta = STATE.analysisResult.meta;
+      const ts = STATE.analysisResult.meta.trustScore ?? '--';
+      const fecha = new Date().toLocaleDateString('es-ES', { year:'numeric', month:'long', day:'numeric' });
+      const anomCount = STATE.parsedLedger?.anomalies?.length || 0;
+      const highCount = (STATE.parsedLedger?.anomalies || []).filter(a => a.severity === 'high' || a.severity === 'critical').length;
+
+      cover.innerHTML = `
+        <div style="text-align:center;margin-bottom:60px;padding-top:80px;">
+          <div style="font-family:Outfit,sans-serif;font-size:2.4rem;font-weight:800;color:#5eaab5;letter-spacing:-0.02em;">aptki</div>
+          <div style="font-size:1rem;color:#94a3b8;margin-top:4px;">workstation · informe financiero</div>
+        </div>
+        <div style="text-align:center;margin-bottom:50px;">
+          <div style="font-family:Outfit,sans-serif;font-size:1.8rem;font-weight:700;">${empresa}</div>
+          <div style="color:#94a3b8;margin-top:8px;">${profile} · ${fecha}</div>
+        </div>
+        <div style="display:flex;justify-content:center;gap:40px;margin-bottom:50px;">
+          <div style="text-align:center;">
+            <div style="font-size:0.75rem;text-transform:uppercase;color:#94a3b8;letter-spacing:0.05em;">Trust Score</div>
+            <div style="font-family:Outfit,sans-serif;font-size:2.8rem;font-weight:800;color:${ts >= 80 ? '#10b981' : ts >= 50 ? '#f59e0b' : '#ef4444'};">${ts}</div>
+            <div style="font-size:0.8rem;color:#94a3b8;">/100</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="font-size:0.75rem;text-transform:uppercase;color:#94a3b8;letter-spacing:0.05em;">Anomalías</div>
+            <div style="font-family:Outfit,sans-serif;font-size:2.8rem;font-weight:800;color:${highCount > 0 ? '#ef4444' : '#10b981'};">${anomCount}</div>
+            <div style="font-size:0.8rem;color:#94a3b8;">${highCount} graves</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="font-size:0.75rem;text-transform:uppercase;color:#94a3b8;letter-spacing:0.05em;">Meses</div>
+            <div style="font-family:Outfit,sans-serif;font-size:2.8rem;font-weight:800;">${meta.months?.length || 0}</div>
+            <div style="font-size:0.8rem;color:#94a3b8;">analizados</div>
+          </div>
+        </div>
+        <div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:20px;text-align:center;">
+          <div style="font-size:0.7rem;color:#475569;">Generado automáticamente por APTKI Workstation · ${fecha} · Documento confidencial</div>
+        </div>
+      `;
+
+      // Insertar portada antes del contenido
+      dashContent.parentNode.insertBefore(cover, dashContent);
+
       const opt = {
         margin:       10,
-        filename:     `${STATE.empresa.nombre || 'dashboard'}_aptki.pdf`.replace(/[^a-z0-9]/gi, '_').toLowerCase(),
+        filename:     `${empresa}_aptki.pdf`.replace(/[^a-z0-9]/gi, '_').toLowerCase(),
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true, backgroundColor: '#0f1115' },
+        html2canvas:  { scale: 2, useCORS: true, backgroundColor: '#0A0A0A' },
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
-      // Ocultar elementos que no queremos en el PDF momentáneamente
-      const btnGroup = document.querySelector('#kpi-perfil-title');
-      const prevColor = element.style.color;
+      // Wrapper temporal
+      const wrapper = document.createElement('div');
+      wrapper.appendChild(cover.cloneNode(true));
+      wrapper.appendChild(dashContent.cloneNode(true));
       
-      // Aplicar un estilo de impresión básico (evitar que el scrollbars y dark mode se vean mal)
-      element.style.background = '#0f1115';
-      
-      showToast('Generando PDF...', 'info', 2000);
-      html2pdf().set(opt).from(element).save().then(() => {
+      showToast('Generando PDF con portada...', 'info', 2000);
+      html2pdf().set(opt).from(wrapper).save().then(() => {
+        cover.remove();
         showToast('PDF Exportado ✓', 'success');
+      }).catch(() => {
+        cover.remove();
       });
     });
   }

@@ -245,8 +245,19 @@
         <p id="dashboard-subtitle">Carga un libro diario para ver el análisis completo.</p>
       </div>
       <div id="dashboard-empty" class="empty-state">
-        <div class="empty-icon">📊</div>
-        <p>Aún no hay datos. Ve a <strong>Cargar Libro</strong> para comenzar.</p>
+        <div style="margin-bottom:20px;">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.5;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        </div>
+        <p style="font-size:1rem;color:var(--text-secondary);margin-bottom:12px;">El dashboard se activará tras completar el pipeline de análisis.</p>
+        <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-top:16px;">
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);"><span style="color:var(--cyan);">1</span> Cargar Excel</div>
+          <div style="color:var(--text-muted);">→</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);"><span style="color:var(--cyan);">2</span> Mapear cuentas</div>
+          <div style="color:var(--text-muted);">→</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);"><span style="color:var(--cyan);">3</span> Revisar devengos</div>
+          <div style="color:var(--text-muted);">→</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);"><span style="color:var(--cyan);">4</span> Dashboard</div>
+        </div>
       </div>
       <div id="dashboard-content" style="display:none;">
         
@@ -309,6 +320,25 @@
         <p>Framework de evaluación de calidad para el trabajo de CFO Interino. Marca los criterios completados.</p>
       </div>
       <div id="checklist-root"><!-- Renderizado por checklist.js --></div>
+
+      <!-- Biblioteca de Reglas de Anomalía -->
+      <div class="card" style="margin-top:32px;">
+        <div class="card-title">📖 Biblioteca de Reglas de Anomalía (Motor Declarativo)</div>
+        <p style="font-size:0.83rem;color:var(--text-secondary);margin-bottom:16px;">El motor de detección ejecuta estas reglas automáticamente tras cada análisis. Cada regla es un componente independiente y extensible.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Regla</th>
+                <th>Severidad</th>
+                <th>Descripción</th>
+              </tr>
+            </thead>
+            <tbody id="rules-library-body"><!-- Rendered by app.js --></tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <!-- ========== SECCIÓN: SCORING PÚBLICO ========== -->

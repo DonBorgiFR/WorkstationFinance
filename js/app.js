@@ -927,8 +927,40 @@ function matchFindingToRule(message) {
   return '';
 }
 
+// ---- Render: Biblioteca de Reglas de Anomalía ----
+const RULE_DESCRIPTIONS = {
+  'cifras_redondas':       'Detecta cuando >15% de los asientos tienen importes múltiplos exactos de 500€ o 1.000€. Indicador de estimaciones o facturas ficticias.',
+  'facturas_domingo':      'Identifica asientos contables registrados en domingo, señal de manipulación temporal o errores de software contable.',
+  'duplicados_exactos':    'Busca pares de asientos con fecha, cuenta, importe y descripción idénticos. Match cuádruple para evitar falsos positivos.',
+  'margen_bruto_negativo': 'Alerta si el margen bruto es negativo en 2+ meses consecutivos, indicando que la empresa vende por debajo de su coste.',
+  'cliente_unico':         'Detecta si una sola cuenta de ingresos concentra >70% de la facturación total. Riesgo de dependencia comercial.',
+  'cuota_personal_critica':'Verifica si el gasto de personal supera el 80% de los ingresos en 3+ meses. Modelo de negocio no escalable.',
+  'asiento_descuadrado':   'Valida la ecuación fundamental (Debe = Haber) por asiento individual. Un descuadre invalida el libro mayor completo.'
+};
+
+function renderRulesLibrary() {
+  const tbody = document.getElementById('rules-library-body');
+  if (!tbody || typeof ANOMALY_RULES === 'undefined') return;
+
+  const sevBadge = (sev) => {
+    const colors = { critical: '#ef4444', high: '#fca5a5', medium: '#fcd34d', low: '#6ee7b7' };
+    const labels = { critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja' };
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;background:rgba(255,255,255,0.05);color:${colors[sev] || '#94a3b8'};">${labels[sev] || sev}</span>`;
+  };
+
+  tbody.innerHTML = ANOMALY_RULES.map(rule => `
+    <tr>
+      <td><code style="font-size:0.75rem;color:var(--cyan);">${rule.id}</code></td>
+      <td style="font-weight:600;">${rule.label}</td>
+      <td>${sevBadge(rule.severity)}</td>
+      <td style="font-size:0.78rem;color:var(--text-secondary);">${RULE_DESCRIPTIONS[rule.id] || '—'}</td>
+    </tr>
+  `).join('');
+}
+
 // ---- Init ----
 renderDefensa();
+renderRulesLibrary();
 
 // Inicializar módulos si existen
 if (typeof renderChecklist === 'function') renderChecklist();
