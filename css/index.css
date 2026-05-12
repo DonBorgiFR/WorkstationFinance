@@ -7,8 +7,8 @@
 
 /* ---- TOKENS ---- */
 :root {
-  --bg-base: #070b14;
-  --bg-surface: #0d1424;
+  --bg-base: #0A0A0A;
+  --bg-surface: #121212;
   --bg-card: rgba(255,255,255,0.04);
   --bg-card-hover: rgba(255,255,255,0.07);
   --border: rgba(255,255,255,0.08);
@@ -543,5 +543,14 @@ tbody tr:hover td { background: var(--bg-card); color: var(--text-primary); }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .dropzone { padding: 40px 20px; }
 }
-. p u l s e - d a n g e r   {   a n i m a t i o n :   p u l s e D a n g e r   1 . 5 s   i n f i n i t e ;   b o r d e r - c o l o r :   v a r ( - - r e d )   ! i m p o r t a n t ;   b o x - s h a d o w :   0   0   1 5 p x   r g b a ( 2 5 5 ,   6 8 ,   6 8 ,   0 . 4 )   ! i m p o r t a n t ;   }   @ k e y f r a m e s   p u l s e D a n g e r   {   0 %   {   t r a n s f o r m :   s c a l e ( 1 ) ;   }   5 0 %   {   t r a n s f o r m :   s c a l e ( 1 . 0 2 ) ;   }   1 0 0 %   {   t r a n s f o r m :   s c a l e ( 1 ) ;   }   }  
- 
+.pulse-danger {
+  animation: pulseDanger 1.5s infinite;
+  border-color: var(--red) !important;
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.4) !important;
+}
+
+@keyframes pulseDanger {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}

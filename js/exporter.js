@@ -44,6 +44,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 // ---- Exportar a Excel Vivo (SheetJS) ----
+/**
+ * exportToExcel(data, forecast, scoring)
+ * @description Genera un archivo Excel multioja (.xlsx) usando SheetJS. A diferencia de un CSV plano, 
+ * este exportador inyecta fórmulas vivas de Excel (SUM, restas) en la PyG para que el modelo financiero 
+ * siga siendo interactivo para el cliente final.
+ * @param {Object} data - AnalysisResult de analyzer.js.
+ * @param {Object} forecast - ForecastResult de forecaster.js.
+ * @param {Object} scoring - ScoringResult de scorer.js.
+ * @returns {void} Inicia la descarga del Excel en el navegador.
+ */
 function exportToExcel(data, forecast, scoring) {
   try {
     const wb = XLSX.utils.book_new();
@@ -73,7 +83,13 @@ function exportToExcel(data, forecast, scoring) {
   }
 }
 
-// Genera la hoja de PyG insertando fórmulas reales de Excel
+/**
+ * buildPyGSheet(pygMensual)
+ * @description Construye la hoja de cálculo "PyG Analítica". Inyecta fórmulas nativas (ej: `SUM(B2:B3)`) 
+ * en lugar de valores estáticos para los cálculos de subtotales (EBITDA, Margen Bruto, etc.).
+ * @param {Object} pygMensual - Mapa de meses a resultados de PyG.
+ * @returns {Object} Un worksheet de SheetJS listo para ser añadido a un workbook.
+ */
 function buildPyGSheet(pygMensual) {
   const months = Object.keys(pygMensual).sort();
   const numMonths = months.length;
@@ -156,6 +172,12 @@ function buildPyGSheet(pygMensual) {
   return ws;
 }
 
+/**
+ * buildKPISheet(data)
+ * @description Construye la hoja de cálculo estática con los KPIs agregados y el balance estimado.
+ * @param {Object} data - AnalysisResult de analyzer.js.
+ * @returns {Object} Un worksheet de SheetJS.
+ */
 function buildKPISheet(data) {
   const aoa = [
     ["KPIs y Resumen de Balance"],
@@ -178,6 +200,13 @@ function buildKPISheet(data) {
   return ws;
 }
 
+/**
+ * buildForecastSheet(forecast)
+ * @description Construye la hoja de cálculo con la proyección a 12 meses (Escenario Base). 
+ * Inyecta fórmulas básicas para el cálculo del EBITDA futuro.
+ * @param {Object} forecast - ForecastResult con escenarios precalculados.
+ * @returns {Object} Un worksheet de SheetJS.
+ */
 function buildForecastSheet(forecast) {
   const aoa = [];
   const base = forecast.scenarios.base;

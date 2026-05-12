@@ -3,6 +3,12 @@
  * Permite guardar y cargar el estado completo del análisis.
  */
 
+/**
+ * exportSession()
+ * @description Empaqueta el estado global de la aplicación (STATE) en un archivo JSON descargable 
+ * con la extensión `.aptki`. Esto permite la persistencia de datos 100% local sin necesidad de backend.
+ * @returns {void} Inicia la descarga del archivo `.aptki` a través del navegador.
+ */
 function exportSession() {
   if (!STATE.analysisResult && !STATE.parsedLedger) {
     showToast('No hay datos para guardar', 'error');
@@ -41,6 +47,14 @@ function exportSession() {
   showToast('Sesión guardada exitosamente ✓', 'success');
 }
 
+/**
+ * importSession(file)
+ * @description Lee un archivo `.aptki` subido por el usuario, decodifica el JSON y restaura 
+ * el estado global de la aplicación (STATE). Si el archivo contiene análisis completos, los re-evalúa 
+ * y recarga los módulos de Forecast y Scoring para rehidratar la UI a su estado original.
+ * @param {File} file - El objeto File seleccionado por el usuario mediante un input type="file".
+ * @returns {void} Muta la variable global `STATE` y navega automáticamente al Dashboard.
+ */
 function importSession(file) {
   if (!file.name.endsWith('.aptki') && !file.name.endsWith('.json')) {
     showToast('Formato de archivo no válido. Usa .aptki', 'error');

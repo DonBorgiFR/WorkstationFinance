@@ -9,7 +9,12 @@ function _fmtEur(v) {
   return new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(v) + '€';
 }
 
-// ---- Definición de criterios ENISA Emprendedores ----
+/**
+ * ENISA_CRITERIOS
+ * @constant {Array<Object>}
+ * @description Define los pesos, umbrales y lógicas de validación para el programa ENISA Emprendedores.
+ * Se evalúan los Fondos Propios, años de antigüedad, capital social y apalancamiento.
+ */
 const ENISA_CRITERIOS = [
   {
     id: 'E1', peso: 20, critico: true,
@@ -90,7 +95,12 @@ const ENISA_CRITERIOS = [
   }
 ];
 
-// ---- Definición de criterios CDTI Neotec ----
+/**
+ * CDTI_CRITERIOS
+ * @constant {Array<Object>}
+ * @description Define los pesos, umbrales y lógicas de validación para CDTI Neotec.
+ * Prioriza empresas < 3 años, presupuesto I+D > 175k€ y masa crítica de personal técnico.
+ */
 const CDTI_CRITERIOS = [
   {
     id: 'N1', peso: 25, critico: true,
@@ -155,7 +165,13 @@ const CDTI_CRITERIOS = [
   }
 ];
 
-// ---- Motor de scoring ----
+/**
+ * scoreFinanciacion(data, inp)
+ * @description Ejecuta el motor de reglas sobre los datos contables combinados con los inputs manuales.
+ * @param {Object} data - AnalysisResult (Totales, Balance, PyG).
+ * @param {Object} inp - Valores manuales del usuario (años de empresa, capital social, etc).
+ * @returns {Object} Un objeto con el scoring detallado (`score`, `elegible`, `alertas`) para ENISA y CDTI.
+ */
 function scoreFinanciacion(data, inp = {}) {
   function computePrograma(criterios) {
     const results = criterios.map(c => ({ ...c, ...c.compute(data, inp) }));

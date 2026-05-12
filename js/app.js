@@ -28,6 +28,13 @@ function showToast(msg, type = 'info', ms = 3500) {
 }
 
 // ---- Navegación SPA ----
+/**
+ * navigate(sectionId)
+ * @description Transición visual entre secciones de la Single Page Application (SPA).
+ * Oculta todas las secciones y muestra la seleccionada, actualizando la barra de navegación.
+ * @param {string} sectionId - El ID de la sección a mostrar (ej. 'dashboard', 'scoring').
+ * @returns {void}
+ */
 function navigate(sectionId) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
@@ -62,29 +69,52 @@ document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => navigate(btn.dataset.section));
 });
 
+// Prevent global accidental drops from opening the file
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => e.preventDefault());
+
 // ---- DROP ZONE ---- 
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('file-input');
 
-dropzone.addEventListener('dragover', (e) => {
+dropzone.addEventListener('dragenter', (e) => {
   e.preventDefault();
+  e.stopPropagation();
   dropzone.classList.add('drag-over');
 });
-dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  dropzone.classList.add('drag-over');
+});
+dropzone.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  dropzone.classList.remove('drag-over');
+});
 dropzone.addEventListener('drop', (e) => {
   e.preventDefault();
+  e.stopPropagation();
   dropzone.classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (file) handleFile(file);
+  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    handleFile(e.dataTransfer.files[0]);
+  }
 });
 dropzone.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === ' ') fileInput.click();
 });
 fileInput.addEventListener('change', (e) => {
-  if (e.target.files[0]) handleFile(e.target.files[0]);
+  if (e.target.files && e.target.files.length > 0) {
+    handleFile(e.target.files[0]);
+  }
 });
 
 // ---- Perfil ----
+/**
+ * renderProfileGrid()
+ * @description Dibuja en el DOM las tarjetas de selección de perfil de negocio (SaaS, Industrial, etc.).
+ * @returns {void}
+ */
 function renderProfileGrid() {
   const grid = document.getElementById('profile-grid');
   grid.innerHTML = BUSINESS_PROFILES.map(p => `
@@ -113,6 +143,13 @@ function selectProfile(profileId) {
 }
 
 // ---- Manejo de archivo ----
+/**
+ * handleFile(file)
+ * @description Punto de entrada principal para el archivo Excel. Valida la extensión, invoca el parser 
+ * asíncrono y, si tiene éxito, actualiza la interfaz mostrando el resumen del parseo y las anomalías.
+ * @param {File} file - El archivo Excel (.xlsx) arrastrado o seleccionado por el usuario.
+ * @returns {Promise<void>}
+ */
 async function handleFile(file) {
   if (!file.name.match(/\.xlsx?$/i)) {
     showToast('Solo se aceptan archivos .xlsx', 'error');
@@ -547,6 +584,12 @@ function renderPyG(pygMensual) {
 }
 
 // ---- Render: Defensa ----
+/**
+ * renderDefensa()
+ * @description Renderiza la pestaña "Defensa Board", proporcionando al CFO preguntas de entrenamiento 
+ * basadas en debilidades comunes de los modelos de negocio.
+ * @returns {void}
+ */
 function renderDefensa() {
   const root = document.getElementById('defensa-root');
   const preguntas = [
@@ -610,9 +653,14 @@ function renderDefensa() {
   `;
 }
 
-}
-
 // ---- Render: Waterfall Chart ----
+/**
+ * renderWaterfall(data)
+ * @description Construye y renderiza un gráfico SVG nativo (Waterfall / Cascada) que visualiza la 
+ * transformación desde los Ingresos Totales hasta la Caja Final.
+ * @param {Object} data - Objeto AnalysisResult completo calculado por analyzer.js.
+ * @returns {void}
+ */
 function renderWaterfall(data) {
   const container = document.getElementById('waterfall-container');
   if (!container) return;

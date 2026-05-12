@@ -47,8 +47,9 @@ function normalizeHeader(h) {
 
 function detectColumn(headers, candidates) {
   const normalized = headers.map(normalizeHeader);
-  for (const cand of candidates) {
-    const idx = normalized.findIndex(h => h === cand || h.startsWith(cand));
+  for (const rawCand of candidates) {
+    const cand = normalizeHeader(rawCand);
+    const idx = normalized.findIndex(h => h === cand || (cand.length >= 3 && h.includes(cand)));
     if (idx !== -1) return idx;
   }
   return -1;
@@ -57,7 +58,12 @@ function detectColumn(headers, candidates) {
 function parseNumber(val) {
   if (val === null || val === undefined || val === '') return 0;
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
-  const s = String(val).replace(/\s/g, '').replace(',', '.');
+  let s = String(val).replace(/\s/g, '');
+  if (s.includes('.') && s.includes(',')) {
+    s = s.replace(/\./g, '').replace(',', '.');
+  } else if (s.includes(',')) {
+    s = s.replace(',', '.');
+  }
   const n = parseFloat(s);
   return isNaN(n) ? 0 : n;
 }
