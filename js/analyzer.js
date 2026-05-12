@@ -430,6 +430,64 @@ function runAnomalyEngine(entries, pygMensual, categoryMap) {
   return allAnomalies;
 }
 
+// ---- Confidence Engine (centralizado — ningún consumidor debe recalcular) ----
+const CONFIDENCE_LEVELS = {
+  reliable:     { min: 80, label: 'Análisis fiable',              forecastMode: 'normal',       scoringPenalty: 0  },
+  reservations: { min: 60, label: 'Utilizable con reservas',      forecastMode: 'cautious',     scoringPenalty: 5  },
+  indicative:   { min: 40, label: 'Solo orientativo',             forecastMode: 'conservative', scoringPenalty: 15 },
+  blocked:      { min: 0,  label: 'Diagnóstico únicamente',      forecastMode: 'simulation',   scoringPenalty: 25 }
+};
+
+/**
+ * getConfidenceMeta(trustScore, anomalies, ebitdaSuspect)
+ * Punto único de cálculo de confianza. Ningún otro módulo debe recalcular niveles.
+ * @returns {{ trustScore, confidenceLevel, confidenceLabel, forecastMode, scoringPenalty, analysisLimitations, fundingReadinessFlags }}
+ */
+function getConfidenceMeta(trustScore, anomalies, ebitdaSuspect) {
+  // Determinar nivel
+  let confidenceLevel = 'blocked';
+  for (const [level, cfg] of Object.entries(CONFIDENCE_LEVELS)) {
+    if (trustScore >= cfg.min) { confidenceLevel = level; break; }
+  }
+  const cfg = CONFIDENCE_LEVELS[confidenceLevel];
+
+  // Limitaciones derivadas automáticamente
+  const analysisLimitations = [];
+  const highCritical = anomalies.filter(a => a.severity === 'high' || a.severity === 'critical');
+  if (highCritical.length > 0) {
+    analysisLimitations.push(`${highCritical.length} anomalía(s) grave(s) detectada(s) en el libro contable.`);
+  }
+  if (ebitdaSuspect) {
+    analysisLimitations.push('Las conclusiones de rentabilidad (EBITDA, márgenes) están condicionadas por incidencias relevantes.');
+  }
+  if (confidenceLevel === 'indicative' || confidenceLevel === 'blocked') {
+    analysisLimitations.push('El análisis no es defensable sin revisión manual previa del libro diario.');
+  }
+  const hasDescuadre = anomalies.some(a => a.message.includes('Descuadre contable') || a.message.includes('desbalanceado'));
+  if (hasDescuadre) {
+    analysisLimitations.push('Existen descuadres contables que invalidan la integridad aritmética del libro.');
+  }
+
+  // Funding readiness flags
+  const fundingReadinessFlags = {
+    scoringDefensible:    confidenceLevel !== 'blocked',
+    forecastDefensible:   confidenceLevel === 'reliable' || confidenceLevel === 'reservations',
+    narrativeConclusive:  confidenceLevel === 'reliable',
+    requiresManualReview: confidenceLevel === 'indicative' || confidenceLevel === 'blocked'
+  };
+
+  return {
+    trustScore,
+    confidenceLevel,
+    confidenceLabel: cfg.label,
+    forecastMode: cfg.forecastMode,
+    scoringPenalty: cfg.scoringPenalty,
+    ebitdaSuspect,
+    analysisLimitations,
+    fundingReadinessFlags
+  };
+}
+
 // ---- Análisis completo ----
 /**
  * analyzeLedger(parsedLedger, profileId, customMapping, approvedAccruals) → AnalysisResult
@@ -450,19 +508,14 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
   const pygMensual = buildPyGMensual(byMonthDevengado, categoryMap);
 
   // Detección de Anomalías Analíticas (Aptki Pro)
-  const nuevasAnomalias = runAnomalyEngine(entries, pygMensual, categoryMap);
-  if (nuevasAnomalias.length > 0) {
-    // Mergeamos asegurándonos de no duplicar si el usuario re-ejecuta
-    const messagesObj = new Set(parsedLedger.anomalies.map(a => a.message));
-    for (const na of nuevasAnomalias) {
-      if (!messagesObj.has(na.message)) {
-        parsedLedger.anomalies.push(na);
-      }
-    }
-  }
+  // INMUTABILIDAD: NO mutamos parsedLedger.anomalies. Combinamos en array nuevo.
+  const analyzerAnomalies = runAnomalyEngine(entries, pygMensual, categoryMap);
+  const parserMessages = new Set(parsedLedger.anomalies.map(a => a.message));
+  const deduplicatedNew = analyzerAnomalies.filter(na => !parserMessages.has(na.message));
+  const allAnomalies = [...parsedLedger.anomalies, ...deduplicatedNew];
 
   // Verificar si hay demasiadas anomalías graves para marcar el EBITDA como sospechoso
-  const highOrCriticalCount = parsedLedger.anomalies.filter(a => a.severity === 'high' || a.severity === 'critical').length;
+  const highOrCriticalCount = allAnomalies.filter(a => a.severity === 'high' || a.severity === 'critical').length;
   const ebitdaSuspect = highOrCriticalCount >= 3;
 
   // Totales del periodo
@@ -511,22 +564,26 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
   // Ingresos del último mes (para MRR)
   const lastMonthData = byMonth[lastMk] || [];
 
-  // ---- Trust Score ----
+  // ---- Trust Score (calculado sobre allAnomalies, NO mutando parsedLedger) ----
   let trustScore = 100;
-  parsedLedger.anomalies.forEach(a => {
+  allAnomalies.forEach(a => {
     if (a.severity === 'critical') trustScore -= 30;
     else if (a.severity === 'high') trustScore -= 15;
     else if (a.severity === 'medium') trustScore -= 5;
     else if (a.severity === 'low') trustScore -= 2;
   });
   // Penalización por descuadres globales (anomalías del parser)
-  const hasDescuadreGeneral = parsedLedger.anomalies.some(a => a.message.includes('Descuadre contable'));
+  const hasDescuadreGeneral = allAnomalies.some(a => a.message.includes('Descuadre contable'));
   if (hasDescuadreGeneral) trustScore -= 20;
-
   trustScore = Math.max(0, Math.floor(trustScore));
 
+  // ---- Confidence Engine (bloque único, centralizado) ----
+  const confidence = getConfidenceMeta(trustScore, allAnomalies, ebitdaSuspect);
+
   const data = {
-    meta: { ...parsedLedger.meta, trustScore },
+    meta: { ...parsedLedger.meta, trustScore }, // trustScore en meta por compatibilidad transitoria
+    anomalies: allAnomalies,                    // Fuente canónica post-análisis (parser + analyzer)
+    confidence,                                 // Bloque propio de confianza
     totales: {
       ingresos: totalIngresos,
       gastos: totalGastos,
@@ -537,7 +594,7 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
       burnRateNeto,
       gastosPorGrupo,
       saldoCuenta: saldoCuentaMap,
-      ebitdaSuspect // Flag de integridad
+      ebitdaSuspect // Mantenido en totales por compatibilidad transitoria
     },
     balance,
     pygMensual,

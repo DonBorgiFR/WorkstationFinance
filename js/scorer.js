@@ -173,23 +173,32 @@ const CDTI_CRITERIOS = [
  * @returns {Object} Un objeto con el scoring detallado (`score`, `elegible`, `alertas`) para ENISA y CDTI.
  */
 function scoreFinanciacion(data, inp = {}) {
+  const penalty = data.confidence?.scoringPenalty || 0;
+
   function computePrograma(criterios) {
     const results = criterios.map(c => ({ ...c, ...c.compute(data, inp) }));
     const totalPeso = criterios.reduce((s, c) => s + c.peso, 0);
     const pesoOk   = results.filter(r => r.ok).reduce((s, r) => s + r.peso, 0);
-    const score    = Math.round((pesoOk / totalPeso) * 100);
+    
+    let rawScore = Math.round((pesoOk / totalPeso) * 100);
+    const score  = Math.max(0, rawScore - penalty);
+    
     const criticoFailed = results.filter(r => r.critico && !r.ok);
-    const elegible = score >= 60 && criticoFailed.length === 0;
+    const elegible = score >= 60 && criticoFailed.length === 0 && (data.confidence?.confidenceLevel !== 'blocked');
 
     const alertas = [];
+    if (penalty > 0) {
+      alertas.push(`⚠️ Score penalizado en -${penalty} pts por calidad de dato (${data.confidence?.confidenceLabel}).`);
+    }
     criticoFailed.forEach(r => alertas.push(`⛔ Criterio crítico no cumplido: ${r.label}`));
     results.filter(r => !r.ok && !r.critico).forEach(r => alertas.push(`⚠ ${r.label}: ${r.detalle}`));
 
-    return { score, elegible, criterios: results, alertas };
+    return { score, rawScore, penalty, elegible, criterios: results, alertas };
   }
   return {
     enisa: computePrograma(ENISA_CRITERIOS),
-    cdti:  computePrograma(CDTI_CRITERIOS)
+    cdti:  computePrograma(CDTI_CRITERIOS),
+    confidence: data.confidence
   };
 }
 
@@ -277,8 +286,17 @@ function _buildScoringHTML() {
 
 function _renderProgramaCard(nombre, icon, result, color, desc) {
   const { score, elegible, criterios, alertas } = result;
-  const statusColor = elegible ? 'var(--green)' : score >= 40 ? 'var(--amber)' : 'var(--red)';
-  const statusLabel = elegible ? '✅ ELEGIBLE' : score >= 40 ? '🟡 PARCIAL' : '🔴 NO ELEGIBLE';
+  const confidence = STATE.analysisResult?.confidence;
+  const isLowConf = confidence && confidence.confidenceLevel !== 'reliable';
+  
+  let statusColor = elegible ? 'var(--green)' : score >= 40 ? 'var(--amber)' : 'var(--red)';
+  let statusLabel = elegible ? '✅ ELEGIBLE' : score >= 40 ? '🟡 PARCIAL' : '🔴 NO ELEGIBLE';
+  
+  if (confidence?.confidenceLevel === 'blocked' || confidence?.confidenceLevel === 'indicative') {
+    statusLabel = '🔴 PROVISIONAL';
+    statusColor = 'var(--red)';
+  }
+
   const circ = 2 * Math.PI * 15.9;
   const dash = `${(score / 100) * circ} ${circ}`;
 
@@ -286,7 +304,10 @@ function _renderProgramaCard(nombre, icon, result, color, desc) {
     <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
       <span style="font-size:2rem;">${icon}</span>
       <div style="flex:1;">
-        <div style="font-family:var(--font-display);font-size:1.1rem;font-weight:700;">${nombre}</div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="font-family:var(--font-display);font-size:1.1rem;font-weight:700;">${nombre}</div>
+          ${isLowConf ? `<span style="font-size:0.6rem; padding:2px 6px; border-radius:4px; background:rgba(245,158,11,0.1); color:var(--amber); border:1px solid rgba(245,158,11,0.3); font-weight:700; letter-spacing:0.02em;">${confidence.confidenceLevel === 'blocked' ? 'PROVISIONAL' : 'CONDICIONADO'}</span>` : ''}
+        </div>
         <div style="font-size:0.77rem;color:var(--text-muted);margin-top:3px;">${desc}</div>
       </div>
       <div style="text-align:center;flex-shrink:0;">

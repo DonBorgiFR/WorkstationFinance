@@ -455,12 +455,18 @@ function renderAccrualsTable() {
 
 // ---- PASO 4: Goto Dashboard ----
 document.getElementById('btn-goto-dashboard').addEventListener('click', () => {
-  // Bloquear navegación si hay anomalías críticas
+  // Gate de anomalías críticas: bloqueo visual, no funcional.
+  // Solo bloqueamos si el parseo mismo falló (0 entries válidas).
+  // Si hay anomalías críticas pero el libro tiene datos, dejamos pasar con advertencia.
   if (STATE.parsedLedger && STATE.parsedLedger.anomalies) {
     const hasCritical = STATE.parsedLedger.anomalies.some(a => a.severity === 'critical');
-    if (hasCritical) {
-      showToast('⚠️ Acceso bloqueado: Existen anomalías CRÍTICAS (ej. Asientos desbalanceados) que invalidan el análisis.', 'error', 6000);
+    const hasValidEntries = STATE.parsedLedger.entries && STATE.parsedLedger.entries.length > 0;
+    if (hasCritical && !hasValidEntries) {
+      showToast('⛔ Parseo fallido: No hay asientos válidos. Revisa el archivo.', 'error', 6000);
       return;
+    }
+    if (hasCritical) {
+      showToast('⚠️ Anomalías CRÍTICAS detectadas. El análisis se generará como ORIENTATIVO.', 'warn', 5000);
     }
   }
 
@@ -481,7 +487,7 @@ document.getElementById('btn-goto-dashboard').addEventListener('click', () => {
   logAudit('Perfil seleccionado', `${STATE.selectedProfile.name} (${STATE.selectedProfile.id})`);
   if (remappedCount > 0) logAudit('Remapeo manual', `${remappedCount} cuentas reclasificadas`);
   if (accrualCount > 0) logAudit('Devengos aprobados', `${accrualCount} periodificaciones aplicadas`);
-  logAudit('Dashboard generado', `Trust Score: ${STATE.analysisResult.meta.trustScore}/100 · EBITDA Suspect: ${STATE.analysisResult.totales.ebitdaSuspect ? 'SÍ' : 'NO'}`);
+  logAudit('Dashboard generado', `Trust Score: ${STATE.analysisResult.confidence.trustScore}/100 · Confianza: ${STATE.analysisResult.confidence.confidenceLabel} · EBITDA Suspect: ${STATE.analysisResult.confidence.ebitdaSuspect ? 'SÍ' : 'NO'}`);
 
   // Pre-calcular scoring con defaults (inputs vacíos) para que el tab ya tenga datos
   STATE.scoringResult = scoreFinanciacion(STATE.analysisResult, STATE.scoringInputs || {});
@@ -519,13 +525,14 @@ function renderDashboard() {
   document.getElementById('dashboard-content').style.display = 'block';
 
   // Trust Score
-  renderTrustScore(data.meta.trustScore || 0);
+  renderTrustScore(data.confidence || { trustScore: data.meta.trustScore || 0, confidenceLabel: '', confidenceLevel: 'reliable' });
 
   // Audit Trail
   renderAuditTrail();
 
   // Hallazgos Accionables
-  renderActionableFindings(STATE.parsedLedger?.anomalies || []);
+  // Fuente canónica: analysisResult.anomalies (parser + analyzer combinadas)
+  renderActionableFindings(STATE.analysisResult.anomalies || []);
 
   // Waterfall y Narrative
   renderWaterfall(data);
@@ -810,20 +817,26 @@ function renderWaterfall(data) {
 }
 
 // ---- Render: Trust Score ----
-function renderTrustScore(score) {
+function renderTrustScore(confidence) {
   const el = document.getElementById('trust-score-value');
   const statusEl = document.getElementById('trust-score-status');
   if (!el || !statusEl) return;
 
+  // Compatibilidad: acepta objeto confidence o número legacy
+  const score = typeof confidence === 'object' ? confidence.trustScore : confidence;
+  const confLabel = typeof confidence === 'object' ? confidence.confidenceLabel : '';
+  const confLevel = typeof confidence === 'object' ? confidence.confidenceLevel : 'reliable';
+
   el.textContent = score;
 
-  let color, label;
-  if (score >= 80) { color = 'var(--green, #22c55e)'; label = 'Alta Fiabilidad'; }
-  else if (score >= 50) { color = 'var(--amber, #f59e0b)'; label = 'Fiabilidad Media'; }
-  else { color = 'var(--danger, #ef4444)'; label = 'Baja Fiabilidad'; }
+  let color;
+  if (score >= 80) { color = 'var(--green, #22c55e)'; }
+  else if (score >= 60) { color = 'var(--amber, #f59e0b)'; }
+  else if (score >= 40) { color = 'var(--amber, #f59e0b)'; }
+  else { color = 'var(--danger, #ef4444)'; }
 
   el.style.color = color;
-  statusEl.textContent = label;
+  statusEl.textContent = confLabel || (score >= 80 ? 'Alta Fiabilidad' : score >= 50 ? 'Fiabilidad Media' : 'Baja Fiabilidad');
   statusEl.style.color = color;
 }
 

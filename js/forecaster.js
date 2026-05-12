@@ -33,16 +33,43 @@ function _nextMonths(lastMk, n) {
 
 // ---- Motor de proyección ----
 function buildForecast(data, hyp) {
+  const confidence = data.confidence || { forecastMode: 'normal' };
   const pygMonths = Object.keys(data.pygMensual).sort();
   const n = pygMonths.length;
   const lastN = Math.min(3, n);
   const lastSlice = pygMonths.slice(-lastN);
 
-  const avgIngresos = lastSlice.reduce((s, m) => s + data.pygMensual[m].totalIngresos, 0) / lastN;
-  const avgOpex = lastSlice.reduce((s, m) => {
-    const mo = data.pygMensual[m];
-    return s + mo.personal + mo.marketing + mo.serviciosOperativos + mo.cogs + mo.tributos;
-  }, 0) / lastN;
+  let avgIngresos, avgOpex, baselineMode;
+
+  // Cálculo de baseline con fallbacks estadísticos
+  if (n === 1) {
+    avgIngresos = data.pygMensual[pygMonths[0]].totalIngresos;
+    avgOpex = data.pygMensual[pygMonths[0]].personal + data.pygMensual[pygMonths[0]].marketing + 
+              data.pygMensual[pygMonths[0]].serviciosOperativos + data.pygMonths[pygMonths[0]].cogs + data.pygMonths[pygMonths[0]].tributos;
+    baselineMode = "Valor único (1 mes)";
+  } else if (n === 2) {
+    avgIngresos = (data.pygMensual[pygMonths[0]].totalIngresos + data.pygMensual[pygMonths[1]].totalIngresos) / 2;
+    avgOpex = (Object.values(data.pygMensual).reduce((s, m) => s + m.personal + m.marketing + m.serviciosOperativos + m.cogs + m.tributos, 0)) / 2;
+    baselineMode = "Media simple (2 meses)";
+  } else {
+    // 3+ meses: aplicamos lógica según confianza
+    const ingresosVals = lastSlice.map(m => data.pygMensual[m].totalIngresos).sort((a,b) => a-b);
+    const opexVals = lastSlice.map(m => {
+      const mo = data.pygMensual[m];
+      return mo.personal + mo.marketing + mo.serviciosOperativos + mo.cogs + mo.tributos;
+    }).sort((a,b) => a-b);
+
+    if (confidence.forecastMode === 'normal') {
+      avgIngresos = ingresosVals.reduce((a,b) => a+b, 0) / 3;
+      avgOpex = opexVals.reduce((a,b) => a+b, 0) / 3;
+      baselineMode = "Promedio normal";
+    } else {
+      // Conservador: usar Mediana (el valor central de los 3 meses)
+      avgIngresos = ingresosVals[1];
+      avgOpex = opexVals[1];
+      baselineMode = "Mediana (Conservador)";
+    }
+  }
 
   const cajaInicial = data.totales.cajaFinal;
   const forecastMonths = _nextMonths(pygMonths[pygMonths.length - 1], 12);
@@ -94,7 +121,9 @@ function buildForecast(data, hyp) {
     scenarios: { base, optimista, pesimista },
     runwayBreakEven: breakEvenBase,
     cajaMinima: { mes: cajaMinBase.mes, valor: cajaMinBase.caja },
-    alertas
+    alertas,
+    baselineMode,
+    confidence
   };
 }
 
@@ -116,7 +145,9 @@ function renderForecast() {
 
   const result = buildForecast(STATE.analysisResult, hyp);
   STATE.forecastResult = result;
-  const { scenarios, forecastMonths, alertas } = result;
+  const { scenarios, forecastMonths, alertas, baselineMode, confidence } = result;
+  const isLowConf = confidence && confidence.confidenceLevel !== 'reliable';
+  const isBlocked = confidence && (confidence.confidenceLevel === 'blocked' || confidence.confidenceLevel === 'indicative');
 
   // Escenario activo (persiste con un attr en el DOM)
   const activeScenario = STATE.forecastScenario || 'base';
@@ -124,14 +155,28 @@ function renderForecast() {
   const scenarioColor = activeScenario === 'base' ? 'var(--cyan)' : activeScenario === 'optimista' ? 'var(--green)' : 'var(--red)';
 
   root.innerHTML = `
-    <!-- ALERTAS -->
-    ${alertas.length > 0 ? `
-    <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:var(--radius-sm);padding:14px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px;">
-      <span style="font-size:1.3rem;flex-shrink:0;">🚨</span>
-      <div>${alertas.map(a => `<div style="font-size:0.85rem;color:var(--red);margin-bottom:4px;">${a}</div>`).join('')}</div>
-    </div>` : ''}
+    <!-- ALERTAS Y DISCLAIMERS -->
+    <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:20px;">
+      ${alertas.length > 0 ? `
+      <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:var(--radius-sm);padding:14px;display:flex;align-items:flex-start;gap:12px;">
+        <span style="font-size:1.3rem;flex-shrink:0;">🚨</span>
+        <div>${alertas.map(a => `<div style="font-size:0.85rem;color:var(--red);margin-bottom:4px;">${a}</div>`).join('')}</div>
+      </div>` : ''}
 
-    <div style="display:grid;grid-template-columns:300px 1fr;gap:24px;align-items:start;">
+      ${isLowConf ? `
+      <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); border-radius:var(--radius-sm); padding:12px; display:flex; align-items:center; gap:12px;">
+        <span style="font-size:1.2rem;">⚠️</span>
+        <div style="font-size:0.82rem; color:var(--amber);">
+          <strong>Proyección Condicionada:</strong> Calidad de dato "${confidence.confidenceLabel}". 
+          Se aplica baseline <strong>${baselineMode}</strong> para evitar sesgos por anomalías.
+        </div>
+      </div>` : ''}
+    </div>
+
+    <div style="display:grid;grid-template-columns:300px 1fr;gap:24px;align-items:start; position:relative;">
+      ${isBlocked ? `<div style="position:absolute; inset:0; background:rgba(10,10,10,0.05); z-index:10; pointer-events:none; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+        <div style="transform:rotate(-30deg); font-size:6rem; font-weight:900; color:rgba(255,255,255,0.03); text-transform:uppercase; white-space:nowrap;">ORIENTATIVO • NO DEFENSABLE</div>
+      </div>` : ''}
 
       <!-- PANEL IZQUIERDO: Hipótesis -->
       <div class="card">
@@ -144,7 +189,7 @@ function renderForecast() {
 
         <!-- Stats de baseline -->
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
-          <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.06em;">Baseline (media últimos 3 meses)</div>
+          <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.06em;">Baseline (${baselineMode})</div>
           <div style="display:flex;flex-direction:column;gap:6px;">
             <div style="display:flex;justify-content:space-between;font-size:0.82rem;">
               <span style="color:var(--text-secondary);">Ingresos/mes</span>

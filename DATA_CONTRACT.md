@@ -73,35 +73,71 @@
   balance: {
     activoNoCorriente: number,
     activoCorriente: number,
-    patrimonioNeto: number,
-    pasivoNoCorriente: number,
-    pasivoCorriente: number,
-    pasivoTotal: number
+## AnalysisResult
+Objeto generado por `analyzer.js` que contiene el diagnóstico financiero completo.
+
+```json
+{
+  "meta": {
+    "filename": "string",
+    "periodo": "string",
+    "trustScore": "number (0-100)"
   },
-  pygMensual: {
-    [monthKey: string]: {
-      ventas: number,
-      otrosIngresos: number,
-      totalIngresos: number,
-      cogs: number,
-      margenBruto: number,
-      personal: number,
-      marketing: number,
-      serviciosOperativos: number,
-      tributos: number,
-      ebitda: number,
-      amortizacion: number,
-      ebit: number,
-      gastosFinancieros: number,
-      resultadoNeto: number
+  "anomalies": "Anomaly[]", 
+  "confidence": {
+    "trustScore": "number",
+    "confidenceLevel": "reliable | reservations | indicative | blocked",
+    "confidenceLabel": "string",
+    "forecastMode": "normal | cautious | conservative | simulation",
+    "scoringPenalty": "number",
+    "ebitdaSuspect": "boolean",
+    "analysisLimitations": "string[]",
+    "fundingReadinessFlags": {
+      "scoringDefensible": "boolean",
+      "forecastDefensible": "boolean",
+      "narrativeConclusive": "boolean",
+      "requiresManualReview": "boolean"
     }
   },
-  byMonth: { [monthKey: string]: Entry[] },
-  lastMonth: string,         // Último monthKey del periodo
-  lastMonthEntries: Entry[], // Asientos del último mes (para MRR)
-  categoryMap: { [cuenta: string]: string }  // Mapa final de clasificación usado
+  "totales": {
+    "ingresos": "number",
+    "gastos": "number",
+    "ebitda": "number",
+    "resultado": "number",
+    "ebitdaSuspect": "boolean"
+  },
+  "balance": {
+    "activoNoCorriente": "number",
+    "activoCorriente": "number",
+    "patrimonioNeto": "number",
+    "pasivoNoCorriente": "number",
+    "pasivoCorriente": "number",
+    "pasivoTotal": "number"
+  },
+  "pygMensual": {
+    "[monthKey]": {
+      "ventas": "number",
+      "otrosIngresos": "number",
+      "totalIngresos": "number",
+      "cogs": "number",
+      "margenBruto": "number",
+      "personal": "number",
+      "marketing": "number",
+      "serviciosOperativos": "number",
+      "tributos": "number",
+      "ebitda": "number",
+      "amortizacion": "number",
+      "ebit": "number",
+      "gastosFinancieros": "number",
+      "resultadoNeto": "number"
+    }
+  }
 }
 ```
+
+### Notas de Migración (Fase 5)
+- **Fuente de Verdad de Anomalías:** Post-análisis, la fuente canónica es `AnalysisResult.anomalies`. `ParsedLedger.anomalies` solo debe usarse para errores de parseo crudo.
+- **Bloque Confidence:** Centraliza toda la lógica de fiabilidad. Ningún módulo (Scorer, Forecaster) debe calcular umbrales; deben consumir este bloque.
 
 ---
 
