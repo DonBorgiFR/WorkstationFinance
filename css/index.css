@@ -429,6 +429,7 @@ body::after {
   border-radius: var(--radius-sm);
   font-size: 0.83rem;
 }
+.anomaly-item.sev-critical { background: rgba(153,27,27,0.3); border: 1px solid rgba(239,68,68,0.6); color: #fecaca; font-weight: bold; }
 .anomaly-item.sev-high { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; }
 .anomaly-item.sev-medium { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: #fcd34d; }
 .anomaly-item.sev-low { background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); color: #6ee7b7; }

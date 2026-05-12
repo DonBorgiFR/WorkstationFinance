@@ -257,110 +257,177 @@ function buildBalanceEstimado(entries) {
   };
 }
 
-// ---- Detección Analítica de Anomalías (Aptki Pro) ----
-function detectAnomaliesAnalyticas(entries, pygMensual, categoryMap) {
-  const anomalies = [];
-  const months = Object.keys(pygMensual).sort();
-
-  // 1. CIFRAS REDONDAS (>15% de asientos son múltiplos de 500)
-  const roundEntries = entries.filter(e => 
-    (e.debe > 0 && e.debe % 500 === 0) || 
-    (e.haber > 0 && e.haber % 500 === 0)
-  );
-  if (entries.length > 0 && (roundEntries.length / entries.length > 0.15)) {
-    anomalies.push({ severity: 'medium', message: 'Alta concentración de cifras redondas',
-      detail: `${roundEntries.length} asientos (${((roundEntries.length/entries.length)*100).toFixed(1)}%) son múltiplos exactos de 500€ o 1.000€` });
-  }
-
-  // 2. FACTURAS EN DOMINGO
-  const sundayEntries = entries.filter(e => {
-    if (!e.fecha) return false;
-    let d;
-    if (e.fecha.includes('/')) {
-      const parts = e.fecha.split('/');
-      if (parts.length === 3) d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-    } else {
-      d = new Date(e.fecha);
-    }
-    return d && !isNaN(d.getTime()) && d.getDay() === 0;
-  });
-  if (sundayEntries.length > 0) {
-    anomalies.push({ severity: 'high', message: `${sundayEntries.length} asiento(s) registrados en domingo`,
-      detail: sundayEntries.slice(0,3).map(e => `${e.fecha} · ${e.cuenta} · ${e.debe||e.haber}€`).join(' | ') });
-  }
-
-  // 3. DUPLICADOS EXACTOS (Misma fecha, cuenta, importe y descripción)
-  const seen = new Map();
-  entries.forEach(e => {
-    if ((e.debe === 0 && e.haber === 0) || !e.fecha) return;
-    const key = `${e.fecha}_${e.cuenta}_${e.debe}_${e.haber}_${e.descripcion}`;
-    if (seen.has(key)) {
-      anomalies.push({ severity: 'high', message: `Posible duplicado detectado`,
-        detail: `Cuenta ${e.cuenta} · ${e.debe||e.haber}€ · Fecha ${e.fecha} · ${e.descripcion}` });
-    } else { seen.set(key, true); }
-  });
-
-  // 4. MARGEN BRUTO NEGATIVO CONSECUTIVO
-  const negMonths = months.filter(m => pygMensual[m]?.margenBruto < 0);
-  if (negMonths.length >= 2) {
-    anomalies.push({ severity: 'high', message: `Margen bruto negativo en ${negMonths.length} meses`,
-      detail: negMonths.join(', ') });
-  }
-
-  // 5. CONCENTRACIÓN DE CLIENTE ÚNICO (>70% ingresos)
-  const ingresosPorCuenta = {};
-  let ingresosTotales = 0;
-  entries.forEach(e => {
-    if (categoryMap[e.cuenta] === 'ingresos_ventas' || categoryMap[e.cuenta] === 'ingresos_otros') {
-      const val = e.haber - e.debe; // Ingresos nacen por el haber
-      if (val > 0) {
-        ingresosPorCuenta[e.cuenta] = (ingresosPorCuenta[e.cuenta] || 0) + val;
-        ingresosTotales += val;
+// ---- Detección Analítica de Anomalías (Aptki Pro - Arquitectura Declarativa) ----
+const ANOMALY_RULES = [
+  {
+    id: 'cifras_redondas',
+    severity: 'medium',
+    label: 'Alta concentración de cifras redondas',
+    check: (entries, pygMensual, categoryMap) => {
+      const roundEntries = entries.filter(e => 
+        (e.debe > 0 && e.debe % 500 === 0) || 
+        (e.haber > 0 && e.haber % 500 === 0)
+      );
+      if (entries.length > 0 && (roundEntries.length / entries.length > 0.15)) {
+        return [{
+          severity: 'medium', message: 'Alta concentración de cifras redondas',
+          detail: `${roundEntries.length} asientos (${((roundEntries.length/entries.length)*100).toFixed(1)}%) son múltiplos exactos de 500€ o 1.000€`
+        }];
       }
+      return [];
     }
-  });
-  if (ingresosTotales > 0) {
-    for (const [cuenta, monto] of Object.entries(ingresosPorCuenta)) {
-      if (monto / ingresosTotales > 0.70) {
-        anomalies.push({ severity: 'high', message: 'Riesgo de Concentración de Cliente Único',
-          detail: `La cuenta ${cuenta} concentra el ${((monto/ingresosTotales)*100).toFixed(1)}% de los ingresos totales.` });
+  },
+  {
+    id: 'facturas_domingo',
+    severity: 'high',
+    label: 'Facturas registradas en domingo',
+    check: (entries, pygMensual, categoryMap) => {
+      const sundayEntries = entries.filter(e => {
+        if (!e.fecha) return false;
+        let d;
+        if (e.fecha.includes('/')) {
+          const parts = e.fecha.split('/');
+          if (parts.length === 3) d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+        } else {
+          d = new Date(e.fecha);
+        }
+        return d && !isNaN(d.getTime()) && d.getDay() === 0;
+      });
+      if (sundayEntries.length > 0) {
+        return [{
+          severity: 'high', message: `${sundayEntries.length} asiento(s) registrados en domingo`,
+          detail: sundayEntries.slice(0,3).map(e => `${e.fecha} · ${e.cuenta} · ${e.debe||e.haber}€`).join(' | ')
+        }];
       }
+      return [];
+    }
+  },
+  {
+    id: 'duplicados_exactos',
+    severity: 'high',
+    label: 'Posible registro duplicado',
+    check: (entries, pygMensual, categoryMap) => {
+      const anomalies = [];
+      const seen = new Map();
+      entries.forEach(e => {
+        if ((e.debe === 0 && e.haber === 0) || !e.fecha) return;
+        const key = `${e.fecha}_${e.cuenta}_${e.debe}_${e.haber}_${e.descripcion}`;
+        if (seen.has(key)) {
+          anomalies.push({ severity: 'high', message: `Posible duplicado detectado`,
+            detail: `Cuenta ${e.cuenta} · ${e.debe||e.haber}€ · Fecha ${e.fecha} · ${e.descripcion}` });
+        } else { seen.set(key, true); }
+      });
+      return anomalies;
+    }
+  },
+  {
+    id: 'margen_bruto_negativo',
+    severity: 'high',
+    label: 'Margen bruto negativo',
+    check: (entries, pygMensual, categoryMap) => {
+      const months = Object.keys(pygMensual).sort();
+      const negMonths = months.filter(m => pygMensual[m]?.margenBruto < 0);
+      if (negMonths.length >= 2) {
+        return [{
+          severity: 'high', message: `Margen bruto negativo en ${negMonths.length} meses`,
+          detail: negMonths.join(', ')
+        }];
+      }
+      return [];
+    }
+  },
+  {
+    id: 'cliente_unico',
+    severity: 'high',
+    label: 'Concentración de cliente único',
+    check: (entries, pygMensual, categoryMap) => {
+      const ingresosPorCuenta = {};
+      let ingresosTotales = 0;
+      entries.forEach(e => {
+        if (categoryMap[e.cuenta] === 'ingresos_ventas' || categoryMap[e.cuenta] === 'ingresos_otros') {
+          const val = e.haber - e.debe;
+          if (val > 0) {
+            ingresosPorCuenta[e.cuenta] = (ingresosPorCuenta[e.cuenta] || 0) + val;
+            ingresosTotales += val;
+          }
+        }
+      });
+      const anomalies = [];
+      if (ingresosTotales > 0) {
+        for (const [cuenta, monto] of Object.entries(ingresosPorCuenta)) {
+          if (monto / ingresosTotales > 0.70) {
+            anomalies.push({ severity: 'high', message: 'Riesgo de Concentración de Cliente Único',
+              detail: `La cuenta ${cuenta} concentra el ${((monto/ingresosTotales)*100).toFixed(1)}% de los ingresos totales.` });
+          }
+        }
+      }
+      return anomalies;
+    }
+  },
+  {
+    id: 'cuota_personal_critica',
+    severity: 'high',
+    label: 'Cuota de personal insostenible',
+    check: (entries, pygMensual, categoryMap) => {
+      const months = Object.keys(pygMensual).sort();
+      let mesesAltaCuotaPersonal = 0;
+      for (const mk of months) {
+        const m = pygMensual[mk];
+        if (m.totalIngresos > 0 && (m.personal / m.totalIngresos) > 0.8) {
+          mesesAltaCuotaPersonal++;
+        }
+      }
+      if (mesesAltaCuotaPersonal >= 3) {
+        return [{
+          severity: 'high', message: 'Escala insostenible: Cuota de personal crítica',
+          detail: `Durante ${mesesAltaCuotaPersonal} meses el coste de personal superó el 80% de los ingresos.`
+        }];
+      }
+      return [];
+    }
+  },
+  {
+    id: 'asiento_descuadrado',
+    severity: 'critical',
+    label: 'Asientos desbalanceados',
+    check: (entries, pygMensual, categoryMap) => {
+      const asientosMap = {};
+      entries.forEach(e => {
+        if (!e.asiento) return;
+        if (!asientosMap[e.asiento]) asientosMap[e.asiento] = { debe: 0, haber: 0 };
+        asientosMap[e.asiento].debe += e.debe || 0;
+        asientosMap[e.asiento].haber += e.haber || 0;
+      });
+      let descuadresPorAsiento = 0;
+      for (const [asiento, sumas] of Object.entries(asientosMap)) {
+        if (Math.abs(sumas.debe - sumas.haber) > 0.02) {
+          descuadresPorAsiento++;
+        }
+      }
+      if (descuadresPorAsiento > 0) {
+        return [{
+          severity: 'critical', message: `Asientos desbalanceados detectados (Crítico)`,
+          detail: `${descuadresPorAsiento} asientos individuales no cuadran (Debe != Haber). Invalida el libro mayor.`
+        }];
+      }
+      return [];
     }
   }
+];
 
-  // 6. CUOTA DE PERSONAL >80% (Burn Multiple implícito > 2x)
-  let mesesAltaCuotaPersonal = 0;
-  for (const mk of months) {
-    const m = pygMensual[mk];
-    if (m.totalIngresos > 0 && (m.personal / m.totalIngresos) > 0.8) {
-      mesesAltaCuotaPersonal++;
+function runAnomalyEngine(entries, pygMensual, categoryMap) {
+  let allAnomalies = [];
+  ANOMALY_RULES.forEach(rule => {
+    try {
+      const results = rule.check(entries, pygMensual, categoryMap);
+      if (results && results.length > 0) {
+        allAnomalies.push(...results);
+      }
+    } catch (e) {
+      console.warn(`Error ejecutando regla de anomalía: ${rule.id}`, e);
     }
-  }
-  if (mesesAltaCuotaPersonal >= 3) {
-    anomalies.push({ severity: 'high', message: 'Escala insostenible: Cuota de personal crítica',
-      detail: `Durante ${mesesAltaCuotaPersonal} meses el coste de personal superó el 80% de los ingresos.` });
-  }
-
-  // 7. DESCUADRE POR APUNTE (ASIENTO INCOMPLETO)
-  const asientosMap = {};
-  entries.forEach(e => {
-    if (!e.asiento) return;
-    if (!asientosMap[e.asiento]) asientosMap[e.asiento] = { debe: 0, haber: 0 };
-    asientosMap[e.asiento].debe += e.debe || 0;
-    asientosMap[e.asiento].haber += e.haber || 0;
   });
-  let descuadresPorAsiento = 0;
-  for (const [asiento, sumas] of Object.entries(asientosMap)) {
-    if (Math.abs(sumas.debe - sumas.haber) > 0.02) {
-      descuadresPorAsiento++;
-    }
-  }
-  if (descuadresPorAsiento > 0) {
-     anomalies.push({ severity: 'medium', message: `Asientos desbalanceados detectados`,
-      detail: `${descuadresPorAsiento} asientos individuales no cuadran (Debe != Haber).` });
-  }
-
-  return anomalies;
+  return allAnomalies;
 }
 
 // ---- Análisis completo ----
@@ -383,7 +450,7 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
   const pygMensual = buildPyGMensual(byMonthDevengado, categoryMap);
 
   // Detección de Anomalías Analíticas (Aptki Pro)
-  const nuevasAnomalias = detectAnomaliesAnalyticas(entries, pygMensual, categoryMap);
+  const nuevasAnomalias = runAnomalyEngine(entries, pygMensual, categoryMap);
   if (nuevasAnomalias.length > 0) {
     // Mergeamos asegurándonos de no duplicar si el usuario re-ejecuta
     const messagesObj = new Set(parsedLedger.anomalies.map(a => a.message));
@@ -393,6 +460,10 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
       }
     }
   }
+
+  // Verificar si hay demasiadas anomalías graves para marcar el EBITDA como sospechoso
+  const highOrCriticalCount = parsedLedger.anomalies.filter(a => a.severity === 'high' || a.severity === 'critical').length;
+  const ebitdaSuspect = highOrCriticalCount >= 3;
 
   // Totales del periodo
   const totalIngresos = Object.values(pygMensual).reduce((s, m) => s + m.totalIngresos, 0);
@@ -416,9 +487,10 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
   // Gastos por grupo PGC (para KPIs industriales)
   const gastosPorGrupo = {};
   for (const entry of entries) {
-    const g = entry.subgrupo;
-    if (!gastosPorGrupo[g]) gastosPorGrupo[g] = 0;
-    if (entry.grupo >= '6' && entry.grupo <= '6') gastosPorGrupo[g] += entry.debe;
+    if (categoryMap[entry.cuenta] === 'ignorar' || entry.cuenta.startsWith('1') || entry.cuenta.startsWith('2') || entry.cuenta.startsWith('3') || entry.cuenta.startsWith('4') || entry.cuenta.startsWith('5') || entry.cuenta.startsWith('7')) continue;
+    if (entry.debe > 0) {
+      gastosPorGrupo[entry.subgrupo] = (gastosPorGrupo[entry.subgrupo] || 0) + entry.debe;
+    }
   }
 
   // Saldos de cuentas individuales

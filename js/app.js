@@ -267,15 +267,23 @@ function renderAnomalies(anomalies) {
   const list = document.getElementById('anomaly-list');
   if (!anomalies.length) { sec.style.display = 'none'; return; }
   sec.style.display = 'block';
-  list.innerHTML = anomalies.map(a => `
-    <div class="anomaly-item sev-${a.severity === 'high' ? 'high' : a.severity === 'medium' ? 'medium' : 'low'}">
-      <span class="anomaly-icon">${a.severity === 'high' ? '🔴' : a.severity === 'medium' ? '🟡' : '🟢'}</span>
+  list.innerHTML = anomalies.map(a => {
+    let sevClass = a.severity;
+    if (!['critical', 'high', 'medium', 'low'].includes(sevClass)) sevClass = 'low';
+    let icon = '🟢';
+    if (a.severity === 'critical') icon = '⛔';
+    else if (a.severity === 'high') icon = '🔴';
+    else if (a.severity === 'medium') icon = '🟡';
+    
+    return `
+    <div class="anomaly-item sev-${sevClass}">
+      <span class="anomaly-icon">${icon}</span>
       <div>
         <strong>${a.message}</strong>
         <div style="opacity:0.8;margin-top:2px;">${a.detail}</div>
       </div>
     </div>
-  `).join('');
+  `}).join('');
 }
 
 // ---- Render: Preview Table ----
@@ -436,6 +444,15 @@ function renderAccrualsTable() {
 
 // ---- PASO 4: Goto Dashboard ----
 document.getElementById('btn-goto-dashboard').addEventListener('click', () => {
+  // Bloquear navegación si hay anomalías críticas
+  if (STATE.parsedLedger && STATE.parsedLedger.anomalies) {
+    const hasCritical = STATE.parsedLedger.anomalies.some(a => a.severity === 'critical');
+    if (hasCritical) {
+      showToast('⚠️ Acceso bloqueado: Existen anomalías CRÍTICAS (ej. Asientos desbalanceados) que invalidan el análisis.', 'error', 6000);
+      return;
+    }
+  }
+
   // Ejecutamos el analysis final con el custom mapping y los devengos aprobados
   STATE.analysisResult = analyzeLedger(
     STATE.parsedLedger, 
@@ -490,14 +507,23 @@ function renderDashboard() {
   const kpiUniversalEl = document.getElementById('kpi-universal');
   kpiUniversalEl.innerHTML = UNIVERSAL_KPIS.map(kpi => {
     const value = kpi.compute(data);
-    const status = getKpiStatus(kpi, value);
+    let status = getKpiStatus(kpi, value);
     const formatted = formatKpiValue(value, kpi.format);
-    const pulseClass = (kpi.id === 'runway' && value !== null && value < 3) ? 'pulse-danger' : '';
+    let pulseClass = (kpi.id === 'runway' && value !== null && value < 3) ? 'pulse-danger' : '';
+    let desc = kpi.desc;
+
+    // Lógica para EBITDA Sospechoso
+    if (kpi.id === 'ebitda' && data.totales.ebitdaSuspect) {
+      status = 'danger';
+      pulseClass = 'pulse-danger';
+      desc = '⚠️ EBITDA Sospechoso: Anomalías graves invalidan la integridad de esta métrica.';
+    }
+
     return `
-      <div class="kpi-card status-${status} ${pulseClass}" title="${kpi.desc}">
+      <div class="kpi-card status-${status} ${pulseClass}" title="${desc}">
         <div class="kpi-label">${kpi.label}</div>
         <div class="kpi-value">${formatted}</div>
-        <div class="kpi-sub">${kpi.desc}</div>
+        <div class="kpi-sub" style="${(kpi.id === 'ebitda' && data.totales.ebitdaSuspect) ? 'color: var(--danger)' : ''}">${desc}</div>
         <div class="kpi-status">${getStatusIcon(status)}</div>
       </div>
     `;
