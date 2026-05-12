@@ -1,42 +1,66 @@
 # APTKI Workstation — CFO Toolkit
 
-APTKI Workstation es una Single Page Application (SPA) avanzada diseñada para automatizar y estandarizar el proceso de consultoría financiera y dirección financiera externalizada (CFO as a Service). 
+Herramienta profesional de análisis financiero para consultores senior APTKI. Ingesta libros diarios contables (PGC español), los clasifica analíticamente y genera dashboards, previsiones a 12 meses y scoring de elegibilidad para financiación pública.
 
-Esta herramienta permite a los consultores ingerir libros diarios contables (PGC Español), limpiarlos, categorizarlos analíticamente y obtener instantáneamente cuadros de mando, previsiones a 12 meses y validaciones de elegibilidad para programas de financiación pública (ENISA, CDTI Neotec).
+## Flujo de Trabajo (4 Pasos)
 
-## 🚀 Arquitectura y Flujo de Trabajo (4 Pasos)
+```
+Excel (.xlsx) → Parser → Mapeo → Devengos → Dashboard
+```
 
-La aplicación sigue un flujo lineal e inmutable para garantizar la integridad de los datos financieros:
+1. **Ingesta y Parseo** — Lee libro diario, extrae asientos, detecta anomalías contables (descuadres, duplicados, cifras redondas, domingos).
+2. **Reclasificación** — Asigna cuentas 6xx/7xx a categorías de negocio. El consultor puede sobrescribir.
+3. **Periodificaciones** — Detecta picos de gasto anormales y propone prorratearlos para normalizar EBITDA.
+4. **Dashboard** — KPIs, PyG analítica, cascada de rentabilidad, narrativa automática.
 
-1. **Ingesta y Parseo:** Lee un archivo `.xlsx` (Libro Diario). El motor extrae asientos, identifica meses, y detecta anomalías contables básicas (descuadres, ausencias de amortizaciones).
-2. **Reclasificación (Mapeo Humano):** El motor asigna las cuentas del grupo 6 y 7 a categorías de negocio (SaaS, Industrial, etc.) de forma inteligente. El consultor puede sobrescribir estas reglas manualmente.
-3. **Periodificaciones (Accrual Engine):** Detecta picos de gasto anormales (ej. seguros anuales) y propone prorratearlos a lo largo de los meses activos para normalizar el EBITDA.
-4. **Dashboard y Diagnóstico:** Se consolida el análisis. Se calculan KPIs universales y específicos por perfil de negocio, PyG analítica, y alertas de *burn rate*.
+## Módulos
 
-## 🧩 Módulos Adicionales (Fase 2 y 3)
+| Módulo | Archivo | Función |
+|--------|---------|---------|
+| Parser | `parser.js` | Ingesta Excel multi-hoja, normalización PGC |
+| Analyzer | `analyzer.js` | Motor de reglas declarativo, Trust Score, ebitdaSuspect |
+| Profiles | `profiles.js` | Perfiles sectoriales (SaaS, Industrial, Servicios) y KPIs |
+| Scorer | `scorer.js` | Scoring ENISA Emprendedores / CDTI Neotec |
+| Forecaster | `forecaster.js` | Proyección 12M con tres escenarios |
+| Narrative | `narrative.js` | Generación automática de texto analítico |
+| Checklist | `checklist.js` | Framework "Filtro Día 1" con auto-completado |
+| Exporter | `exporter.js` | Excel con fórmulas vivas + PDF con portada |
+| Session | `session.js` | Persistencia .aptki con Audit Trail |
+| Knowledge | `knowledge.js` | Guía de financiación pública/privada |
+| App | `app.js` | Controlador SPA, renderizado, Audit Trail, hallazgos accionables |
 
-* **🏅 Scoring Público:** Motor de reglas que cruza la situación patrimonial y la cuenta de resultados con los requisitos técnicos de ENISA Emprendedores y CDTI Neotec.
-* **📈 Forecaster 12M:** Proyección financiera mes a mes utilizando el baseline histórico. Genera tres escenarios (Base, Optimista, Pesimista) de evolución de caja.
-* **✅ Filtro Día 1:** Checklist interno de calidad del consultor. Se autocompleta parcialmente validando los outputs técnicos.
-* **💾 Gestor de Sesiones:** Permite guardar y cargar el estado completo del análisis (`.aptki`) sin requerir backend.
-* **📊 Exportador Financiero:** Motor que traduce el análisis a un libro Excel vivo (con fórmulas) y exportador PDF para presentaciones directas a comités.
+## Características Clave
 
-## 🛠 Stack Tecnológico
+- **Trust Score** — Métrica 0–100 que evalúa la fiabilidad del libro cargado.
+- **Motor de Anomalías Declarativo** — 7 reglas independientes y extensibles (`ANOMALY_RULES`).
+- **Bloqueo por anomalías críticas** — Impide generar dashboard si hay asientos desbalanceados.
+- **ebitdaSuspect** — Flag automático si ≥3 anomalías graves; marca EBITDA en rojo con disclaimer.
+- **Audit Trail** — Registro cronológico de cada acción del pipeline, persistido en sesiones.
+- **Hallazgos Accionables** — Tabla con hallazgo/impacto/severidad/recomendación/acción para CFOs.
+- **Portada PDF** — Primera página profesional con Trust Score, anomalías y metadata.
+- **Biblioteca de Reglas** — Panel visible en Checklist que lista todas las reglas activas.
 
-* **Frontend:** Vanilla JavaScript (ES6+), HTML5, CSS Nativo.
-* **Diseño:** Sistema de diseño personalizado, Glassmorphism, CSS Variables, SVG Nativo para gráficos de alta performance.
-* **Librerías externas (vía CDN):**
-  * `SheetJS (xlsx)`: Para parsear e ingestar el libro diario de entrada, y exportar modelos vivos.
-  * `html2pdf.js`: Generación robusta de reportes PDF ejecutivos a partir del DOM.
+## Stack
 
-## 📦 Uso y Despliegue
+- **Frontend:** Vanilla JS (ES6+), HTML5, CSS nativo (dark, sobrio).
+- **Gráficos:** SVG nativo (cascada de rentabilidad, forecast).
+- **CDN:** SheetJS (xlsx), html2pdf.js.
+- **Backend:** Ninguno. 100% client-side. Los datos nunca salen del navegador.
 
-La aplicación es 100% *Client-Side*. No requiere base de datos, backend ni instalación de dependencias en el servidor. La privacidad de los datos es total, ya que la información del cliente nunca abandona el navegador.
+## Documentación
 
-1. Abre `index.html` en cualquier navegador moderno.
-2. Arrastra el Libro Diario de tu cliente (exportado de A3, Holded, Sage, etc.).
-3. Sigue los pasos de mapeo y genera tu análisis.
+- `DATA_CONTRACT.md` — Contrato de datos entre módulos (payload exacto, invariantes).
+- `ARCHITECTURE.md` — Flujo de datos y responsabilidades por módulo.
+- `.agent/skills/aptki-excel-parser/` — Reglas de comportamiento del parser para agentes.
 
-## ⚖️ Licencia
+## Uso
+
+```
+1. Abrir index.html en cualquier navegador moderno
+2. Arrastrar o seleccionar libro diario (.xlsx)
+3. Seguir los 4 pasos del pipeline
+```
+
+## Licencia
 
 Proyecto interno de APTKI. Todos los derechos reservados.
