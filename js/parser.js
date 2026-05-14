@@ -28,7 +28,6 @@ const MONTH_NAMES = {
   diciembre:12, december:12, dic:12, dec:12, '12':12
 };
 
-// Columnas que esperamos encontrar (variantes de nombre)
 const COL_CANDIDATES = {
   fecha:       ['fecha','date','f','dia','día'],
   asiento:     ['asiento','nº','n°','num','número','numero','seq','id'],
@@ -40,8 +39,9 @@ const COL_CANDIDATES = {
 
 // ---- Utilidades ----
 function normalizeHeader(h) {
+  // Reduce cabeceras a caracteres puros para evitar fallos de lectura por tildes o mayúsculas
   return String(h || '').toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita tildes
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]/g, '');
 }
 
@@ -55,36 +55,79 @@ function detectColumn(headers, candidates) {
   return -1;
 }
 
+/**
+ * Convierte cualquier valor a un número flotante nativo.
+ * [Protección 1: DBNull y Espacios]: Intercepta nulos, indefinidos y espacios periféricos (ej. "  ").
+ * [Protección 2: Saneamiento Negativos Contables]: Intercepta formatos (X) y los convierte en flotantes negativos -X.
+ */
 function parseNumber(val) {
-  if (val === null || val === undefined || val === '') return 0;
+  // Defensa asertiva: los nulos o indefinidos fuerzan coerción matemática a 0 (cero)
+  if (val === null || val === undefined) return 0;
+  
+  // Si Excel lo entrega puro como número, lo retornamos directo
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
-  let s = String(val).replace(/\s/g, '');
-  if (s.includes('.') && s.includes(',')) {
-    s = s.replace(/\./g, '').replace(',', '.');
-  } else if (s.includes(',')) {
-    s = s.replace(',', '.');
+  
+  // Limpieza inicial de "espacios fantasma"
+  let s = String(val).trim();
+  if (s === '') return 0;
+  
+  // Lógica para detectar si el número viene en formato contable de ERPs tipo (5.240,50)
+  let isNegative = false;
+  const matchNegativo = s.match(/^\((.*)\)$/);
+  if (matchNegativo) {
+    isNegative = true;
+    s = matchNegativo[1]; // Nos quedamos solo con la parte numérica interna
   }
-  const n = parseFloat(s);
-  return isNaN(n) ? 0 : n;
+  
+  // Limpieza de espacios interiores que funcionan como separadores de miles (ej. "1 000,00")
+  s = s.replace(/\s/g, '');
+  
+  // Formateo Europeo: preparamos el string para parseFloat (que requiere notación anglosajona)
+  if (s.includes('.') && s.includes(',')) {
+    s = s.replace(/\./g, '').replace(',', '.'); 
+  } else if (s.includes(',')) {
+    s = s.replace(',', '.'); 
+  }
+  
+  let n = parseFloat(s);
+  if (isNaN(n)) return 0; // Fallback extremo
+  
+  // Aplicamos la bandera de negatividad si extrajimos el importe de entre paréntesis
+  return isNegative ? -n : n;
 }
 
+/**
+ * Convierte un valor serial de Excel o string a Date nativo.
+ * [Protección 3: Época Excel]: Evita desfases sumando la corrección horaria.
+ */
 function parseDate(val) {
-  if (!val) return null;
-  // Excel serial date
+  // Defensa contra celdas en blanco o borradas
+  if (val === null || val === undefined) return null;
+  
+  // Corrección Matemática de la Época de Excel
   if (typeof val === 'number' && val > 1000) {
-    const d = new Date(Math.round((val - 25569) * 86400 * 1000));
+    // 1. Restamos la Época (25569) para llevarlo a UNIX
+    // 2. Multiplicamos por 86400000 para pasarlo a milisegundos
+    // 3. Compensamos el offset de la zona horaria restándolo para crear la fecha local exacta
+    const tzOffsetMs = new Date().getTimezoneOffset() * 60000;
+    const epochMs = Math.round((val - 25569) * 86400000);
+    const d = new Date(epochMs - tzOffsetMs);
     return isNaN(d) ? null : d;
   }
-  // String
+  
   const s = String(val).trim();
+  if (s === '') return null;
+  
   const d = new Date(s);
   if (!isNaN(d)) return d;
-  // dd/mm/yyyy
+  
+  // Fallback dd/mm/yyyy
   const m = s.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
   if (m) {
     const year = m[3].length === 2 ? 2000 + parseInt(m[3]) : parseInt(m[3]);
     return new Date(year, parseInt(m[2]) - 1, parseInt(m[1]));
   }
+  
   return null;
 }
 
@@ -100,11 +143,9 @@ function toMonthKey(date, fallbackMonth) {
 
 function detectMonthFromSheetName(name) {
   const norm = normalizeHeader(name);
-  // Check direct match
   for (const [key, val] of Object.entries(MONTH_NAMES)) {
     if (norm === key || norm.startsWith(key)) return val;
   }
-  // Extract number from name like "Mes1", "M01", "Hoja1"
   const numMatch = norm.match(/(\d{1,2})$/);
   if (numMatch) {
     const n = parseInt(numMatch[1]);
@@ -117,14 +158,14 @@ function detectMonthFromSheetName(name) {
 function parseSheetRows(rows, sheetName, fallbackMonth, logFn) {
   if (!rows || rows.length === 0) return [];
 
-  // Buscar fila de cabecera: la que más celdas no vacías tenga en las primeras 15 filas
-  // Esto maneja libros con filas de metadatos antes de la cabecera real
+  // Buscar cabecera de forma dinámica y tolerante (saltando metadatos iniciales)
   let headerRowIdx = 0;
   let bestCount = 0;
   for (let i = 0; i < Math.min(rows.length, 15); i++) {
     const row = rows[i];
     if (!row) continue;
-    const nonEmpty = row.filter(c => c !== null && c !== undefined && c !== '').length;
+    // Evaluamos celdas que NO sean nulas y que al hacerles trim() no estén vacías
+    const nonEmpty = row.filter(c => c !== null && c !== undefined && String(c).trim() !== '').length;
     if (nonEmpty > bestCount) {
       bestCount = nonEmpty;
       headerRowIdx = i;
@@ -152,16 +193,18 @@ function parseSheetRows(rows, sheetName, fallbackMonth, logFn) {
     const row = rows[i];
     if (!row) continue;
 
+    // Aquí las funciones parseNumber se encargan de sanear, purificar y extraer 
+    // previniendo DBNulls de forma automática.
     const debe  = parseNumber(row[colDebe]);
     const haber = parseNumber(row[colHaber]);
-    if (debe === 0 && haber === 0) continue; // fila vacía
+    if (debe === 0 && haber === 0) continue; 
 
     const rawCuenta = colCuenta >= 0 ? String(row[colCuenta] || '').trim() : '';
     const cuenta = rawCuenta.replace(/[^0-9a-zA-Z]/g, '');
     if (!cuenta) continue;
 
     const rawFecha = colFecha >= 0 ? row[colFecha] : null;
-    const fecha = parseDate(rawFecha);
+    const fecha = parseDate(rawFecha); // Aplicando offset y epoch safe
     const monthKey = toMonthKey(fecha, fallbackMonth);
 
     const desc = colDesc >= 0 ? String(row[colDesc] || '').trim() : '';
@@ -173,7 +216,7 @@ function parseSheetRows(rows, sheetName, fallbackMonth, logFn) {
       fecha: fecha ? fecha.toISOString().split('T')[0] : null,
       asiento,
       cuenta,
-      grupo: cuenta.charAt(0),      // primer dígito = grupo PGC
+      grupo: cuenta.charAt(0),
       subgrupo: cuenta.substring(0, 2),
       descripcion: desc,
       debe,
@@ -184,18 +227,17 @@ function parseSheetRows(rows, sheetName, fallbackMonth, logFn) {
   return entries;
 }
 
-// ---- Detección de anomalías ----
+// ---- Detección de anomalías (Inmutable) ----
 function detectAnomalies(entries, byMonth) {
   const anomalies = [];
   const months = Object.keys(byMonth).sort();
 
-  // 1. Descuadre Debe ≠ Haber por mes
   for (const mk of months) {
     const grp = byMonth[mk];
     const totalDebe  = grp.reduce((s, e) => s + e.debe, 0);
     const totalHaber = grp.reduce((s, e) => s + e.haber, 0);
     const diff = Math.abs(totalDebe - totalHaber);
-    if (diff > 1) { // tolerancia 1€ por redondeos
+    if (diff > 1) { 
       anomalies.push({
         id: 'descuadre_contable',
         severity: 'high',
@@ -206,7 +248,6 @@ function detectAnomalies(entries, byMonth) {
     }
   }
 
-  // 2. Meses sin amortizaciones (cuentas 680/681/682) cuando otros sí las tienen
   const monthsWithAmort = months.filter(mk =>
     byMonth[mk].some(e => e.cuenta.startsWith('68'))
   );
@@ -223,7 +264,6 @@ function detectAnomalies(entries, byMonth) {
     });
   }
 
-  // 3. Saltos bruscos en ingresos totales (> 40% mes a mes)
   for (let i = 1; i < months.length; i++) {
     const mk = months[i];
     const prev = months[i - 1];
@@ -243,7 +283,6 @@ function detectAnomalies(entries, byMonth) {
     }
   }
 
-  // 4. Movimientos en cuenta de resultados (129) mezclados en periodos
   const hasResultados = entries.some(e => e.cuenta.startsWith('129'));
   if (hasResultados) {
     anomalies.push({
@@ -268,69 +307,75 @@ async function parseLedgerFile(file, onProgress) {
   const log = (msg) => onProgress && onProgress({ log: msg });
   const progress = (pct, text) => onProgress && onProgress({ pct, text });
 
-  progress(5, 'Leyendo archivo...');
-  log('ok|Archivo recibido: ' + file.name);
+  try {
+    progress(5, 'Leyendo archivo...');
+    log('ok|Archivo recibido: ' + file.name);
 
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
+    const buffer = await file.arrayBuffer();
+    // [Skill compliance]: cellDates en false para forzar la compensación manual en nuestro parseDate
+    const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
 
-  progress(15, 'Detectando estructura...');
-  const sheetNames = workbook.SheetNames;
-  log('ok|Hojas encontradas: ' + sheetNames.join(', '));
+    progress(15, 'Detectando estructura...');
+    const sheetNames = workbook.SheetNames;
+    log('ok|Hojas encontradas: ' + sheetNames.join(', '));
 
-  const entries = [];
-  const step = 60 / Math.max(sheetNames.length, 1);
+    const entries = [];
+    const step = 60 / Math.max(sheetNames.length, 1);
 
-  for (let si = 0; si < sheetNames.length; si++) {
-    const sheetName = sheetNames[si];
-    const ws = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+    for (let si = 0; si < sheetNames.length; si++) {
+      const sheetName = sheetNames[si];
+      const ws = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
 
-    progress(15 + step * si, `Procesando hoja "${sheetName}"...`);
+      progress(15 + step * si, `Procesando hoja "${sheetName}"...`);
 
-    // ¿Es una hoja mensual?
-    const monthNum = detectMonthFromSheetName(sheetName);
-    if (monthNum) {
-      log(`ok|Hoja mensual detectada: "${sheetName}" → mes ${monthNum}`);
-    } else {
-      log(`ok|Hoja detectada: "${sheetName}" (sin mes explícito)`);
+      const monthNum = detectMonthFromSheetName(sheetName);
+      if (monthNum) {
+        log(`ok|Hoja mensual detectada: "${sheetName}" → mes ${monthNum}`);
+      } else {
+        log(`ok|Hoja detectada: "${sheetName}" (sin mes explícito)`);
+      }
+
+      const sheetEntries = parseSheetRows(rows, sheetName, monthNum, log);
+      entries.push(...sheetEntries);
+      log(`ok|${sheetEntries.length} asientos leídos en "${sheetName}"`);
     }
 
-    const sheetEntries = parseSheetRows(rows, sheetName, monthNum, log);
-    entries.push(...sheetEntries);
-    log(`ok|${sheetEntries.length} asientos leídos en "${sheetName}"`);
+    progress(80, 'Agrupando por mes...');
+
+    const byMonth = {};
+    for (const entry of entries) {
+      if (!byMonth[entry.monthKey]) byMonth[entry.monthKey] = [];
+      byMonth[entry.monthKey].push(entry);
+    }
+
+    progress(88, 'Detectando anomalías...');
+    const anomalies = detectAnomalies(entries, byMonth);
+    log(`${anomalies.length > 0 ? 'warn' : 'ok'}|${anomalies.length} anomalías detectadas`);
+
+    const cuentasUnicas = new Set(entries.map(e => e.cuenta));
+
+    progress(95, 'Finalizando...');
+    log('ok|Parseo completado');
+    progress(100, 'Listo');
+
+    return {
+      meta: {
+        fileName: file.name,
+        sheets: sheetNames,
+        months: Object.keys(byMonth).sort(),
+        totalEntries: entries.length,
+        totalCuentas: cuentasUnicas.size
+      },
+      entries,
+      byMonth,
+      anomalies
+    };
+
+  } catch (error) {
+    // [Skill Compliance] Fallback de error robusto: evitamos crashear la vista o el drag & drop
+    console.error("Fallo crítico en parser.js:", error);
+    log(`error|Fallo en el motor de lectura: ${error.message || 'Error desconocido'}`);
+    throw error;
   }
-
-  progress(80, 'Agrupando por mes...');
-
-  // Agrupar por monthKey
-  const byMonth = {};
-  for (const entry of entries) {
-    if (!byMonth[entry.monthKey]) byMonth[entry.monthKey] = [];
-    byMonth[entry.monthKey].push(entry);
-  }
-
-  progress(88, 'Detectando anomalías...');
-  const anomalies = detectAnomalies(entries, byMonth);
-  log(`${anomalies.length > 0 ? 'warn' : 'ok'}|${anomalies.length} anomalías detectadas`);
-
-  // Cuentas únicas
-  const cuentasUnicas = new Set(entries.map(e => e.cuenta));
-
-  progress(95, 'Finalizando...');
-  log('ok|Parseo completado');
-  progress(100, 'Listo');
-
-  return {
-    meta: {
-      fileName: file.name,
-      sheets: sheetNames,
-      months: Object.keys(byMonth).sort(),
-      totalEntries: entries.length,
-      totalCuentas: cuentasUnicas.size
-    },
-    entries,
-    byMonth,
-    anomalies
-  };
 }

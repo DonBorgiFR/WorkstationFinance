@@ -3,20 +3,23 @@
  * orquestación de módulos y renderizado de todas las secciones.
  */
 
-// ---- Estado global ----
-const STATE = {
-  parsedLedger: null,
-  analysisResult: null,
-  selectedProfile: null,
-  customMapping: null,
-  extraInputs: {},
-  empresa: { nombre: '', sector: '', empleados: 0 },
-  scoringInputs: {},
-  scoringResult: null,
-  forecastResult: null,
-  forecastScenario: 'base',
-  auditTrail: []
-};
+// ---- Integración con store.js (Fase 2) ----
+// El objeto STATE y appStore se inicializan de forma reactiva en store.js
+
+// Suscripciones reactivas principales
+appStore.subscribe('analysisResult', () => {
+  if (document.getElementById('section-dashboard').classList.contains('active')) {
+    renderDashboard();
+  }
+});
+
+appStore.subscribe('parsedLedger', (parsed) => {
+  if (parsed) {
+    renderParseSummary(parsed);
+    if (parsed.anomalies) renderAnomalies(parsed.anomalies);
+    if (parsed.entries) renderPreviewTable(parsed.entries.slice(0, 50));
+  }
+});
 
 /** Registro de evento en Audit Trail */
 function logAudit(action, detail = '') {
@@ -56,15 +59,18 @@ function navigate(sectionId) {
   // Control de botones de exportación superior
   const btnExportPdf = document.getElementById('btn-export-pdf');
   const btnExportExcel = document.getElementById('btn-export-excel');
+  const btnExportAgentic = document.getElementById('btn-export-agentic');
   const exportSep = document.getElementById('export-sep');
   
   if (STATE.analysisResult && (sectionId === 'dashboard' || sectionId === 'forecast' || sectionId === 'scoring')) {
     if (btnExportPdf) btnExportPdf.style.display = 'block';
     if (btnExportExcel) btnExportExcel.style.display = 'block';
+    if (btnExportAgentic) btnExportAgentic.style.display = 'block';
     if (exportSep) exportSep.style.display = 'block';
   } else {
     if (btnExportPdf) btnExportPdf.style.display = 'none';
     if (btnExportExcel) btnExportExcel.style.display = 'none';
+    if (btnExportAgentic) btnExportAgentic.style.display = 'none';
     if (exportSep) exportSep.style.display = 'none';
   }
 
@@ -175,8 +181,15 @@ async function handleFile(file) {
   document.getElementById('parse-summary').classList.remove('show');
   document.getElementById('preview-section').style.display = 'none';
   document.getElementById('anomaly-section').style.display = 'none';
-  document.getElementById('goto-mapping-bar').style.display = 'none';
-  document.getElementById('mapping-section').style.display = 'none';
+  
+  const ctxBar = document.getElementById('goto-context-bar');
+  if (ctxBar) ctxBar.style.display = 'none';
+  const mappingBar = document.getElementById('goto-mapping-bar');
+  if (mappingBar) mappingBar.style.display = 'none';
+  const mappingSec = document.getElementById('mapping-section');
+  if (mappingSec) mappingSec.style.display = 'none';
+  const contextSec = document.getElementById('context-section');
+  if (contextSec) contextSec.style.display = 'none';
 
   showToast(`Archivo "${file.name}" listo. Selecciona el perfil de empresa.`, 'info');
 
@@ -238,13 +251,13 @@ document.getElementById('btn-analizar').addEventListener('click', async () => {
     renderAnomalies(parsed.anomalies);
     renderPreviewTable(parsed.entries.slice(0, 50));
 
-    // Mostrar botón para el paso 2
-    document.getElementById('goto-mapping-bar').style.display = 'block';
+    // Mostrar botón para el paso 2 (Contexto)
+    document.getElementById('goto-context-bar').style.display = 'block';
     
     // Auto scroll para que sea evidente
-    document.getElementById('goto-mapping-bar').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.getElementById('goto-context-bar').scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-    showToast('Ingesta completada ✓. Pasa al mapeo manual.', 'success');
+    showToast('Ingesta completada ✓. Pasa a definir el contexto.', 'success');
 
   } catch (err) {
     console.error(err);
@@ -315,9 +328,39 @@ function renderPreviewTable(entries) {
   `).join('');
 }
 
-// ---- PASO 2: Mapeo Humano ----
+// ---- PASO 2: Contexto Contable ----
+document.getElementById('btn-goto-context').addEventListener('click', () => {
+  document.getElementById('goto-context-bar').style.display = 'none';
+  const contextSec = document.getElementById('context-section');
+  contextSec.style.display = 'block';
+  contextSec.scrollIntoView({ behavior: 'smooth' });
+});
+
+// ---- PASO 3: Mapeo Humano ----
 document.getElementById('btn-goto-mapping').addEventListener('click', () => {
-  document.getElementById('goto-mapping-bar').style.display = 'none';
+  // Capturar datos del contexto
+  const distortions = [];
+  ['extraordinary_ops', 'high_capex', 'annual_costs', 'financing_event'].forEach(d => {
+    if (document.getElementById(`ctx-dist-${d}`).checked) distortions.push(d);
+  });
+
+  const cfoConfidence = parseInt(document.getElementById('ctx-cfoConfidence').value) || 5;
+
+  STATE.contextChecklist = {
+    coveragePeriod: document.getElementById('ctx-coveragePeriod').value,
+    closeStatus: document.getElementById('ctx-closeStatus').value,
+    externalReview: document.getElementById('ctx-externalReview').value,
+    bridgeAccounts: document.getElementById('ctx-bridgeAccounts').value,
+    reconciliationIssues: document.getElementById('ctx-reconciliationIssues').value,
+    publicDebtRisk: document.getElementById('ctx-publicDebtRisk').value,
+    cfoConfidence: cfoConfidence,
+    distortions: distortions
+  };
+
+  logAudit('Contexto Contable definido', 'Confianza CFO: ' + cfoConfidence);
+
+  // Ocultar sección de contexto y mostrar mapeo
+  document.getElementById('context-section').style.display = 'none';
   const mappingSec = document.getElementById('mapping-section');
   mappingSec.style.display = 'block';
   
@@ -470,12 +513,13 @@ document.getElementById('btn-goto-dashboard').addEventListener('click', () => {
     }
   }
 
-  // Ejecutamos el analysis final con el custom mapping y los devengos aprobados
+  // Ejecutamos el analysis final con el custom mapping, devengos aprobados y contexto
   STATE.analysisResult = analyzeLedger(
     STATE.parsedLedger, 
     STATE.selectedProfile.id, 
     STATE.customMapping,
-    STATE.approvedAccruals || []
+    STATE.approvedAccruals || [],
+    STATE.contextChecklist
   );
   
   // Flag para el checklist
@@ -866,19 +910,49 @@ function renderTrustScore(confidence) {
 function renderAuditTrail() {
   const container = document.getElementById('audit-trail-content');
   if (!container) return;
-  if (!STATE.auditTrail.length) {
-    container.innerHTML = '<span style="opacity:0.5;">Sin eventos registrados.</span>';
-    return;
+
+  let html = '';
+
+  // Bloque 1: Razones del Motor de Confianza
+  const confidence = STATE.analysisResult?.confidence;
+  if (confidence && confidence.auditReasons && confidence.auditReasons.length > 0) {
+    html += `<div style="font-size:0.75rem; text-transform:uppercase; color:var(--purple, #a855f7); margin-bottom:8px; font-weight:700;">⚙️ Confidence Engine Log</div>`;
+    html += confidence.auditReasons.map(reason => `
+      <div style="margin-bottom:4px; padding-left:8px; border-left:2px solid var(--purple, #a855f7); color:var(--text-secondary); font-size:0.85rem;">
+        ${reason}
+      </div>
+    `).join('');
   }
 
-  container.innerHTML = STATE.auditTrail.map(ev => {
-    const time = new Date(ev.ts).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    return `<div style="margin-bottom:4px;">
-      <span style="color:var(--cyan, #06b6d4); font-family:var(--font-mono, monospace); font-size:0.78rem;">${time}</span>
-      <strong style="color:var(--text-primary); margin:0 6px;">${ev.action}</strong>
-      <span>${ev.detail}</span>
-    </div>`;
-  }).join('');
+  // Separador (si hay bloques anteriores y también hay log de sesión)
+  if (html !== '' && STATE.auditTrail.length > 0) {
+    html += `<div style="border-top:1px solid var(--border, #334155); margin:12px 0;"></div>`;
+  }
+
+  // Bloque 2: Registro de Sesión
+  if (STATE.auditTrail.length > 0) {
+    if (html !== '') {
+      html += `<div style="font-size:0.75rem; text-transform:uppercase; color:var(--cyan, #06b6d4); margin-bottom:8px; font-weight:700;">👤 User Session Log</div>`;
+    } else {
+      // Si no hay auditReasons, el encabezado se añade igual
+      html += `<div style="font-size:0.75rem; text-transform:uppercase; color:var(--cyan, #06b6d4); margin-bottom:8px; font-weight:700;">👤 User Session Log</div>`;
+    }
+    
+    html += STATE.auditTrail.map(ev => {
+      const time = new Date(ev.ts).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return `<div style="margin-bottom:4px;">
+        <span style="color:var(--cyan, #06b6d4); font-family:var(--font-mono, monospace); font-size:0.78rem;">${time}</span>
+        <strong style="color:var(--text-primary); margin:0 6px;">${ev.action}</strong>
+        <span style="color:var(--text-secondary);">${ev.detail}</span>
+      </div>`;
+    }).join('');
+  }
+
+  if (html === '') {
+    html = '<span style="opacity:0.5;">Sin eventos registrados.</span>';
+  }
+
+  container.innerHTML = html;
 }
 
 // ---- Render: Hallazgos Accionables ----
@@ -890,7 +964,10 @@ const FINDING_RECOMMENDATIONS = {
   'cliente_unico':        { impacto: 'Dependencia comercial extrema (>70%).', rec: 'Plan de diversificación.', accion: 'Estrategia comercial', efectoFinanciacion: 'Riesgo de concentración crítico para inversores.' },
   'cuota_personal_critica':{ impacto: 'Modelo no escalable; ingresos consumidos por nóminas.', rec: 'Optimización OpEx.', accion: 'Reestructuración', efectoFinanciacion: 'Dificulta la justificación de Neotec/I+D.' },
   'asiento_descuadrado':  { impacto: 'Invalida la integridad del libro mayor.', rec: 'Corregir descuadres.', accion: 'Bloqueo', efectoFinanciacion: 'Motivo de rechazo automático en cualquier auditoría.' },
-  'ebitda_suspect':       { impacto: 'Métricas de rentabilidad no fiables.', rec: 'Presentar con disclaimer.', accion: 'Disclaimer', efectoFinanciacion: 'Afecta directamente al cálculo del préstamo ENISA.' }
+  'ebitda_suspect':       { impacto: 'Métricas de rentabilidad no fiables.', rec: 'Presentar con disclaimer.', accion: 'Disclaimer', efectoFinanciacion: 'Afecta directamente al cálculo del préstamo ENISA.' },
+  'prestamos_socios':     { impacto: 'Riesgo de fuga de capital o descapitalización.', rec: 'Documentar y liquidar si es posible.', accion: 'Préstamo Encubierto', efectoFinanciacion: 'Riesgo alto de rechazo en Due Diligence ENISA.' },
+  'deuda_publica_alta':   { impacto: 'Excesiva deuda con Hacienda / Seg. Social.', rec: 'Priorizar liquidación antes de la solicitud.', accion: 'Alerta Pasivo Público', efectoFinanciacion: 'Bloquea la certificación de estar al corriente de pagos.' },
+  'bankability_scaleup':  { impacto: 'La facturación valida un modelo avanzado (>500k).', rec: 'Migrar a BBVA Spark / DayOne + Qonto / Revolut.', accion: 'Diversificación Bancaria', efectoFinanciacion: 'Permite acceder a Venture Debt y financiación Growth.' }
 };
 
 function renderActionableFindings(anomalies) {

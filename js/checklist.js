@@ -3,7 +3,8 @@
  * Checklist interactivo con scoring 0-100 y persistencia localStorage.
  */
 
-const CHECKLIST_DATA = [
+function getChecklistData(profileId) {
+  const baseData = [
   {
     id: 'tecnica',
     title: 'Precisión Técnica Contable',
@@ -60,21 +61,36 @@ const CHECKLIST_DATA = [
       { id: 'pr5', label: '¿Errores detectados documentados en pestaña de ajustes?' }
     ]
   },
-  {
+  ];
+
+  const negocioItems = [
+    { id: 'nb1', label: '¿Estrategia de liquidez/financiación propuesta?' },
+    { id: 'nb2', label: '¿Medidas operativas de choque si el runway es crítico?' },
+    { id: 'nb3', label: '¿Recomendaciones adaptadas al perfil y momento de la empresa?' }
+  ];
+
+  if (profileId === 'saas') {
+    negocioItems.push({ id: 'nb_saas1', label: '¿Se ha calculado correctamente el MRR y el Burn Multiple?' });
+    negocioItems.push({ id: 'nb_saas2', label: '¿Los costes de servidores (AWS, GCP) están clasificados en COGS?' });
+  } else if (profileId === 'industrial' || profileId === 'servicios') {
+    negocioItems.push({ id: 'nb_ind1', label: '¿Existe separación contable clara para proyectos de I+D (fundamental para CDTI)?' });
+    negocioItems.push({ id: 'nb_ind2', label: '¿Se han identificado correctamente las partidas de CAPEX vs OPEX?' });
+  } else {
+    negocioItems.push({ id: 'nb4', label: '¿Propuesta de valor CFO as a Service articulada?' });
+    negocioItems.push({ id: 'nb5', label: '¿Mezcla inteligente Equity + Deuda pública planteada?' });
+  }
+
+  baseData.push({
     id: 'negocio',
     title: 'Sentido de Negocio',
     weight: 20,
     icon: '🧠',
     color: '#f472b6',
-    items: [
-      { id: 'nb1', label: '¿Estrategia de liquidez/financiación propuesta?' },
-      { id: 'nb2', label: '¿Medidas operativas de choque si el runway es crítico?' },
-      { id: 'nb3', label: '¿Recomendaciones adaptadas al perfil y momento de la empresa?' },
-      { id: 'nb4', label: '¿Propuesta de valor CFO as a Service articulada?' },
-      { id: 'nb5', label: '¿Mezcla inteligente Equity + Deuda pública planteada?' }
-    ]
-  }
-];
+    items: negocioItems
+  });
+
+  return baseData;
+}
 
 // ---- Estado ----
 function loadChecklistState() {
@@ -87,10 +103,11 @@ function saveChecklistState(state) {
   localStorage.setItem('aptki_checklist', JSON.stringify(state));
 }
 
-function computeScore(state) {
+function computeScore(state, profileId) {
   let total = 0;
   let checked = 0;
-  for (const category of CHECKLIST_DATA) {
+  const data = getChecklistData(profileId);
+  for (const category of data) {
     for (const item of category.items) {
       total++;
       if (state[item.id]) checked++;
@@ -149,7 +166,9 @@ function renderChecklist() {
     saveChecklistState(checkState);
   }
 
-  const score = computeScore(checkState);
+  const profileId = STATE.selectedProfile?.id || 'saas';
+  const score = computeScore(checkState, profileId);
+  const checklistData = getChecklistData(profileId);
 
   root.innerHTML = `
     <!-- Score header -->
@@ -186,9 +205,8 @@ function renderChecklist() {
       </div>
     </div>
 
-    <!-- Categorías -->
     <div style="display:flex;flex-direction:column;gap:20px;">
-      ${CHECKLIST_DATA.map(cat => {
+      ${checklistData.map(cat => {
         const catChecked = cat.items.filter(i => checkState[i.id]).length;
         const catPct = Math.round((catChecked / cat.items.length) * 100);
         return `

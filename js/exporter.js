@@ -7,6 +7,47 @@
 document.addEventListener('DOMContentLoaded', () => {
   const btnPdf = document.getElementById('btn-export-pdf');
   const btnExcel = document.getElementById('btn-export-excel');
+  const btnAgentic = document.getElementById('btn-export-agentic');
+
+  if (btnAgentic) {
+    btnAgentic.addEventListener('click', () => {
+      if (!STATE.analysisResult) return;
+      const data = STATE.analysisResult;
+      const conf = data.confidence || {};
+      const anom = data.anomalies || [];
+      const t = data.totales;
+      const runway = t.burnRateNeto > 0 ? (t.cajaFinal / t.burnRateNeto).toFixed(1) + ' meses' : 'Rentable';
+
+      const markdown = `<system_context>
+Estos datos financieros pertenecen a la empresa ${STATE.empresa.nombre || 'analizada'} y han sido procesados y estructurados automáticamente por la APTKI Workstation a partir de su libro diario contable bruto.
+</system_context>
+
+<financial_data>
+- Ingresos Totales: ${t.ingresos.toLocaleString('es-ES')} €
+- EBITDA: ${t.ebitda.toLocaleString('es-ES')} €
+- Caja Final: ${t.cajaFinal.toLocaleString('es-ES')} €
+- Burn Rate Neto Promedio: ${t.burnRateNeto.toLocaleString('es-ES')} €/mes
+- Runway Estimado: ${runway}
+</financial_data>
+
+<confidence_engine>
+- Trust Score: ${conf.trustScore || 0}/100 (${conf.confidenceLabel || 'No evaluado'})
+- Limitaciones del Análisis:
+${(conf.analysisLimitations || []).map(l => '  * ' + l).join('\n')}
+</confidence_engine>
+
+<actionable_findings>
+${anom.length > 0 ? anom.map(a => '- [' + a.severity.toUpperCase() + '] ' + a.message).join('\n') : '- Ninguna anomalía detectada.'}
+</actionable_findings>`;
+
+      navigator.clipboard.writeText(markdown).then(() => {
+        showToast('Contexto copiado al portapapeles. Listo para pegar en ChatGPT/Claude', 'success');
+      }).catch(err => {
+        console.error('Error al copiar:', err);
+        showToast('Error al copiar al portapapeles', 'error');
+      });
+    });
+  }
 
   if (btnPdf) {
     btnPdf.addEventListener('click', () => {

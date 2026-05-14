@@ -17,7 +17,8 @@ Excel (.xlsx) → Parser → Mapeo → Devengos → Dashboard
 
 | Módulo | Archivo | Función |
 |--------|---------|---------|
-| Parser | `parser.js` | Ingesta Excel multi-hoja, normalización PGC |
+| Store | `store.js` | Motor de Estado Global Reactivo (Deep Proxy) y Pub/Sub |
+| Parser | `parser.js` | Ingesta Excel, corrección época, saneamiento contable |
 | Analyzer | `analyzer.js` | Motor de reglas declarativo, Trust Score, ebitdaSuspect |
 | Profiles | `profiles.js` | Perfiles sectoriales (SaaS, Industrial, Servicios) y KPIs |
 | Scorer | `scorer.js` | Scoring ENISA Emprendedores / CDTI Neotec |
@@ -42,7 +43,9 @@ Excel (.xlsx) → Parser → Mapeo → Devengos → Dashboard
 
 ## Stack
 
-- **Frontend:** Vanilla JS (ES6+), HTML5, CSS nativo (dark, sobrio).
+- **Frontend:** Vanilla JS (ES6+), HTML5, CSS nativo.
+- **Diseño:** Dark Glassmorphism (blur, gradientes, bordes sutiles).
+- **Reactividad:** ES6 Proxies nativos y patrón Observer (sin librerías).
 - **Gráficos:** SVG nativo (cascada de rentabilidad, forecast).
 - **CDN:** SheetJS (xlsx), html2pdf.js.
 - **Backend:** Ninguno. 100% client-side. Los datos nunca salen del navegador.

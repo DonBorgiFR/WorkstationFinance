@@ -21,6 +21,7 @@
     <div style="margin-left: auto; display: flex; gap: 12px; align-items: center;">
       <button class="btn btn-secondary" id="btn-export-pdf" style="padding: 6px 12px; font-size: 0.8rem; display: none;" title="Exportar Vista a PDF">📄 PDF</button>
       <button class="btn btn-secondary" id="btn-export-excel" style="padding: 6px 12px; font-size: 0.8rem; display: none;" title="Exportar Modelo Financiero a Excel">📥 Excel</button>
+      <button class="btn btn-secondary" id="btn-export-agentic" style="padding: 6px 12px; font-size: 0.8rem; display: none; border-color: var(--purple); color: var(--purple);" title="Copiar contexto ultradenso para LLMs">🤖 Prompt IA</button>
       <div class="topbar-sep" id="export-sep" style="display: none;"></div>
       <label class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem; cursor: pointer;" title="Cargar Sesión Guardada">
         📂 Cargar Sesión
@@ -160,17 +161,101 @@
         </div>
       </div>
 
-      <!-- ACCIÓN IR A MAPEO (Paso 2) -->
-      <div id="goto-mapping-bar" style="display:none; margin-top:24px; text-align:center;">
-        <button class="btn btn-primary" id="btn-goto-mapping" style="font-size:1rem; padding:14px 32px;">
-          ⚙️ Paso 2: Reclasificación y Mapeo →
+      <!-- ACCIÓN IR A CONTEXTO (Paso 2) -->
+      <div id="goto-context-bar" style="display:none; margin-top:24px; text-align:center;">
+        <button class="btn btn-primary" id="btn-goto-context" style="font-size:1rem; padding:14px 32px;">
+          ⚙️ Paso 2: Contexto Contable →
         </button>
       </div>
 
-      <!-- SECCIÓN: MAPEO DE CUENTAS (Paso 2) -->
+      <!-- SECCIÓN: CONTEXTO CONTABLE (Paso 2) -->
+      <div id="context-section" style="display:none; margin-top:32px;">
+        <div class="page-header" style="margin-bottom:16px;">
+          <h2 style="font-family:var(--font-display);font-size:1.4rem;color:var(--text-primary);">Paso 2: Contexto Contable</h2>
+          <p>Ajusta el nivel de confianza del análisis respondiendo a estas preguntas clave sobre el estado del libro diario y la empresa.</p>
+        </div>
+        <div class="card">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+            <div class="form-group">
+              <label for="ctx-coveragePeriod">Cobertura del Periodo</label>
+              <select id="ctx-coveragePeriod">
+                <option value="complete">Completo (12 meses o hasta fecha actual)</option>
+                <option value="missing_months">Faltan meses intermedios</option>
+                <option value="unsure">No estoy seguro</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="ctx-closeStatus">Estado del Cierre</label>
+              <select id="ctx-closeStatus">
+                <option value="final_close">Cierre definitivo</option>
+                <option value="preclose">Precierre (ajustes pendientes)</option>
+                <option value="draft">Borrador / Volcado en bruto</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="ctx-externalReview">Revisión Externa</label>
+              <select id="ctx-externalReview">
+                <option value="external">Auditado externamente</option>
+                <option value="internal">Revisión interna CFO</option>
+                <option value="none">Sin revisión previa</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="ctx-bridgeAccounts">Cuentas Puente (555, etc.)</label>
+              <select id="ctx-bridgeAccounts">
+                <option value="none">Sin saldo o irrelevante</option>
+                <option value="moderate">Saldo moderado, controlado</option>
+                <option value="high">Saldo elevado, descontrolado</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="ctx-reconciliationIssues">Problemas de Conciliación</label>
+              <select id="ctx-reconciliationIssues">
+                <option value="none">Ninguno / Cuadrado</option>
+                <option value="minor">Diferencias menores</option>
+                <option value="high">Descuadres importantes detectados</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="ctx-publicDebtRisk">Riesgo Deuda Pública</label>
+              <select id="ctx-publicDebtRisk">
+                <option value="none">Al corriente / Sin deuda</option>
+                <option value="controlled">Deuda aplazada aprobada</option>
+                <option value="delicate">Embargos o atrasos críticos</option>
+              </select>
+            </div>
+          </div>
+          
+          <div class="form-group" style="margin-top: 16px;">
+            <label for="ctx-cfoConfidence">Confianza subjetiva del Consultor/CFO (0-10)</label>
+            <div style="display:flex; align-items:center; gap: 16px;">
+              <input type="range" id="ctx-cfoConfidence" min="0" max="10" value="5" style="flex:1;" oninput="document.getElementById('ctx-cfo-val').textContent = this.value" />
+              <span id="ctx-cfo-val" style="font-weight:bold; font-size:1.2rem; min-width: 24px; text-align:right;">5</span>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top: 16px;">
+            <label>Distorsiones Detectadas (Múltiple)</label>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px;">
+              <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="ctx-dist-extraordinary_ops" value="extraordinary_ops"> Operaciones Extraordinarias</label>
+              <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="ctx-dist-high_capex" value="high_capex"> CAPEX Alto / Activaciones</label>
+              <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="ctx-dist-annual_costs" value="annual_costs"> Gastos Anuales</label>
+              <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="ctx-dist-financing_event" value="financing_event"> Evento Financiación</label>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:24px; text-align:center;">
+          <button class="btn btn-primary" id="btn-goto-mapping" style="font-size:1rem; padding:14px 32px;">
+            ⚙️ Paso 3: Reclasificación y Mapeo →
+          </button>
+        </div>
+      </div>
+
+      <!-- SECCIÓN: MAPEO DE CUENTAS (Paso 3) -->
       <div id="mapping-section" style="display:none; margin-top:32px;">
         <div class="page-header" style="margin-bottom:16px;">
-          <h2 style="font-family:var(--font-display);font-size:1.4rem;color:var(--text-primary);">Paso 2: Ajuste Fino de Cuentas (Mapeo Humano)</h2>
+          <h2 style="font-family:var(--font-display);font-size:1.4rem;color:var(--text-primary);">Paso 3: Ajuste Fino de Cuentas (Mapeo Humano)</h2>
           <p>Revisa y ajusta cómo se clasificarán las cuentas contables de pérdidas y ganancias (grupos 6 y 7). El sistema ha pre-asignado categorías según el PGC.</p>
         </div>
         <div class="card">
@@ -191,17 +276,17 @@
         </div>
       </div>
 
-      <!-- ACCIÓN IR A PERIODIFICACIONES (Paso 3) -->
+      <!-- ACCIÓN IR A PERIODIFICACIONES (Paso 4) -->
       <div id="goto-accruals-bar" style="display:none; margin-top:24px; text-align:center;">
         <button class="btn btn-primary" id="btn-goto-accruals" style="font-size:1rem; padding:14px 32px;">
-          ⚖️ Paso 3: Ajustes de Devengo →
+          ⚖️ Paso 4: Ajustes de Devengo →
         </button>
       </div>
 
-      <!-- SECCIÓN: PERIODIFICACIONES (Paso 3) -->
+      <!-- SECCIÓN: PERIODIFICACIONES (Paso 4) -->
       <div id="accruals-section" style="display:none; margin-top:32px;">
         <div class="page-header" style="margin-bottom:16px;">
-          <h2 style="font-family:var(--font-display);font-size:1.4rem;color:var(--text-primary);">Paso 3: Periodificaciones (Accrual Engine)</h2>
+          <h2 style="font-family:var(--font-display);font-size:1.4rem;color:var(--text-primary);">Paso 4: Periodificaciones (Accrual Engine)</h2>
           <p>El sistema ha detectado pagos concentrados que podrían distorsionar tu EBITDA mensual (ej. primas anuales de seguros, licencias). Selecciona cuáles deseas prorratear.</p>
         </div>
         
@@ -232,7 +317,7 @@
 
         <div style="margin-top:24px; text-align:center;">
           <button class="btn btn-primary" id="btn-goto-dashboard" style="font-size:1.1rem; padding:16px 40px; box-shadow:var(--shadow-glow-cyan);">
-            📊 Paso 4: Generar Dashboard Final
+            📊 Paso 5: Generar Dashboard Final
           </button>
         </div>
       </div>
@@ -252,11 +337,13 @@
         <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-top:16px;">
           <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);"><span style="color:var(--cyan);">1</span> Cargar Excel</div>
           <div style="color:var(--text-muted);">→</div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);"><span style="color:var(--cyan);">2</span> Mapear cuentas</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);"><span style="color:var(--cyan);">2</span> Contexto</div>
           <div style="color:var(--text-muted);">→</div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);"><span style="color:var(--cyan);">3</span> Revisar devengos</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);"><span style="color:var(--cyan);">3</span> Mapear cuentas</div>
           <div style="color:var(--text-muted);">→</div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);"><span style="color:var(--cyan);">4</span> Dashboard</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);"><span style="color:var(--cyan);">4</span> Revisar devengos</div>
+          <div style="color:var(--text-muted);">→</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-muted);"><span style="color:var(--cyan);">5</span> Dashboard</div>
         </div>
       </div>
       <div id="dashboard-content" style="display:none;">
@@ -401,6 +488,7 @@
 <script src="js/session.js"></script>
 <script src="js/exporter.js"></script>
 <script src="js/narrative.js"></script>
+<script src="js/store.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

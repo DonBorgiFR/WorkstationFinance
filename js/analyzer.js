@@ -412,6 +412,55 @@ const ANOMALY_RULES = [
       }
       return [];
     }
+  },
+  {
+    id: 'prestamos_socios',
+    severity: 'high',
+    label: 'Riesgo de fuga de capital (Grupo 55)',
+    check: (entries, pygMensual, categoryMap) => {
+      const saldo = saldoCuenta(entries, ['55']);
+      if (saldo.debe - saldo.haber > 10000) {
+        return [{
+          severity: 'high', message: 'Préstamos encubiertos a socios detectados',
+          detail: `Saldo deudor relevante (>10k€) en el Grupo 55.`
+        }];
+      }
+      return [];
+    }
+  },
+  {
+    id: 'deuda_publica_alta',
+    severity: 'high',
+    label: 'Deuda pública elevada (Grupo 47)',
+    check: (entries, pygMensual, categoryMap) => {
+      const saldo = saldoCuenta(entries, ['475', '476']);
+      const pasivoPublico = saldo.haber - saldo.debe;
+      if (pasivoPublico > 20000) {
+        return [{
+          severity: 'high', message: 'Deuda pública elevada o aplazamientos',
+          detail: `Saldo acreedor superior a 20k€ en Hacienda/Seg. Social.`
+        }];
+      }
+      return [];
+    }
+  },
+  {
+    id: 'bankability_scaleup',
+    severity: 'high',
+    label: 'Fase Scaleup: Optimización de Stack Financiero',
+    check: (entries, pygMensual, categoryMap) => {
+      const totalIngresos = Object.values(pygMensual).reduce((acc, m) => acc + m.totalIngresos, 0);
+      const meses = Object.keys(pygMensual).length || 1;
+      const ingresosAnualizados = (totalIngresos / meses) * 12;
+
+      if (ingresosAnualizados > 500000) {
+        return [{
+          severity: 'high', message: 'Fase Scaleup: Oportunidad de Bankability',
+          detail: `Facturación anualizada >500k€. Estructura financiera avanzada sugerida.`
+        }];
+      }
+      return [];
+    }
   }
 ];
 
@@ -440,20 +489,136 @@ const CONFIDENCE_LEVELS = {
 };
 
 /**
- * getConfidenceMeta(trustScore, anomalies, ebitdaSuspect)
+ * getConfidenceMeta(baseTrustScore, anomalies, ebitdaSuspect, contextChecklist)
  * Punto único de cálculo de confianza. Ningún otro módulo debe recalcular niveles.
- * @returns {{ trustScore, confidenceLevel, confidenceLabel, forecastMode, scoringPenalty, analysisLimitations, fundingReadinessFlags }}
+ * Combina señales automáticas (anomalías) con señales humanas (contextChecklist).
+ * @param {number} baseTrustScore - Score calculado por la máquina (anomalías parser + analyzer)
+ * @param {Array} anomalies - Array combinado de anomalías (parser + analyzer)
+ * @param {boolean} ebitdaSuspect - true si ≥3 anomalías high/critical
+ * @param {Object|null} contextChecklist - Respuestas del checklist humano (null = sin contexto)
+ * @returns {{ trustScore, confidenceLevel, confidenceLabel, forecastMode, scoringPenalty, ebitdaSuspect, analysisLimitations, fundingReadinessFlags, auditReasons }}
  */
-function getConfidenceMeta(trustScore, anomalies, ebitdaSuspect) {
-  // Determinar nivel
+function getConfidenceMeta(baseTrustScore, anomalies, ebitdaSuspect, contextChecklist = null) {
+  const analysisLimitations = [];
+  const auditReasons = [];
+
+  // ── 1. Delta humano desde contextChecklist ──
+  const DISTORTION_DELTAS = {
+    extraordinary_ops: { delta: -2, limitation: 'El periodo contiene operaciones extraordinarias que pueden distorsionar la lectura financiera.' },
+    high_capex:        { delta: -3, limitation: 'Se informan inversiones puntuales relevantes que distorsionan el periodo.' },
+    annual_costs:      { delta: -1, limitation: 'Existen gastos puntuales o anuales identificados que pueden requerir normalización.' },
+    financing_event:   { delta: -2, limitation: 'El periodo incluye eventos de financiación que afectan la comparabilidad de caja.' }
+  };
+
+  let deltaHuman = 0;
+
+  if (contextChecklist) {
+    // A. Cobertura y calidad del libro
+    if (contextChecklist.coveragePeriod === 'complete') {
+      deltaHuman += 3; auditReasons.push('+3 pts: Periodo completo declarado.');
+    } else if (contextChecklist.coveragePeriod === 'missing_months') {
+      deltaHuman -= 5; auditReasons.push('-5 pts: Faltan meses en el periodo.');
+      analysisLimitations.push('El usuario declara que faltan meses en el libro.');
+    } else if (contextChecklist.coveragePeriod === 'unsure') {
+      deltaHuman -= 3; auditReasons.push('-3 pts: Cobertura del periodo incierta.');
+      analysisLimitations.push('No hay certeza sobre la cobertura completa del periodo.');
+    }
+
+    if (contextChecklist.closeStatus === 'final_close') {
+      deltaHuman += 4; auditReasons.push('+4 pts: Cierre contable definitivo.');
+    } else if (contextChecklist.closeStatus === 'preclose') {
+      analysisLimitations.push('El análisis se realiza sobre un pre-cierre operativo.');
+    } else if (contextChecklist.closeStatus === 'draft') {
+      deltaHuman -= 6; auditReasons.push('-6 pts: Libro en estado borrador/sin cierre.');
+      analysisLimitations.push('El libro analizado está en estado borrador o sin cierre.');
+    }
+
+    if (contextChecklist.externalReview === 'external') {
+      deltaHuman += 3; auditReasons.push('+3 pts: Revisado por tercero externo.');
+    } else if (contextChecklist.externalReview === 'none') {
+      deltaHuman -= 3; auditReasons.push('-3 pts: Sin revisión externa.');
+      analysisLimitations.push('No consta revisión externa ni validación independiente.');
+    }
+
+    if (contextChecklist.bridgeAccounts === 'none') {
+      deltaHuman += 2; auditReasons.push('+2 pts: Sin saldos relevantes en cuentas puente.');
+    } else if (contextChecklist.bridgeAccounts === 'moderate') {
+      deltaHuman -= 3; auditReasons.push('-3 pts: Saldos moderados en cuentas puente.');
+      analysisLimitations.push('Existen saldos moderados en cuentas puente o transitorias.');
+    } else if (contextChecklist.bridgeAccounts === 'high') {
+      deltaHuman -= 6; auditReasons.push('-6 pts: Saldos elevados en cuentas puente.');
+      analysisLimitations.push('Existen saldos elevados en cuentas puente o de descuadre.');
+    }
+
+    // B. Riesgos conocidos
+    if (contextChecklist.reconciliationIssues === 'none') {
+      deltaHuman += 2; auditReasons.push('+2 pts: Sin incidencias de conciliación.');
+    } else if (contextChecklist.reconciliationIssues === 'minor') {
+      deltaHuman -= 2; auditReasons.push('-2 pts: Incidencias menores de conciliación.');
+      analysisLimitations.push('Existen incidencias menores de conciliación bancaria.');
+    } else if (contextChecklist.reconciliationIssues === 'high') {
+      deltaHuman -= 5; auditReasons.push('-5 pts: Incidencias relevantes de conciliación.');
+      analysisLimitations.push('Existen incidencias relevantes de conciliación bancaria.');
+    }
+
+    if (contextChecklist.publicDebtRisk === 'controlled') {
+      deltaHuman -= 2; auditReasons.push('-2 pts: Aplazamientos controlados con deuda pública.');
+      analysisLimitations.push('Existen aplazamientos con deuda pública, aunque controlados.');
+    } else if (contextChecklist.publicDebtRisk === 'delicate') {
+      deltaHuman -= 5; auditReasons.push('-5 pts: Situación delicada con deuda pública.');
+      analysisLimitations.push('Existe una situación delicada con deuda pública.');
+    }
+
+    // C. Confianza subjetiva del CFO (0–10)
+    if (typeof contextChecklist.cfoConfidence === 'number') {
+      const cfoAdj = Math.round(((contextChecklist.cfoConfidence - 5) / 5) * 4);
+      deltaHuman += cfoAdj;
+      if (cfoAdj !== 0) auditReasons.push(`${cfoAdj > 0 ? '+' : ''}${cfoAdj} pts: Confianza subjetiva CFO (${contextChecklist.cfoConfidence}/10).`);
+    }
+
+    // D. Distorsiones (vocabulario cerrado)
+    if (Array.isArray(contextChecklist.distortions)) {
+      for (const key of contextChecklist.distortions) {
+        const rule = DISTORTION_DELTAS[key];
+        if (rule) {
+          deltaHuman += rule.delta;
+          auditReasons.push(`${rule.delta} pts: Distorsión '${key}'.`);
+          analysisLimitations.push(rule.limitation);
+        }
+      }
+    }
+
+    // Cap del impacto humano: no puede blanquear un libro malo
+    if (deltaHuman > 10) deltaHuman = 10;
+    if (deltaHuman < -15) deltaHuman = -15;
+    auditReasons.push(`Delta humano final: ${deltaHuman > 0 ? '+' : ''}${deltaHuman} pts (cap -15/+10).`);
+  }
+
+  // ── 2. TrustScore final ──
+  let trustScore = Math.max(0, Math.min(100, baseTrustScore + deltaHuman));
+
+  // ── 3. Hard caps por anomalías críticas (no blanqueable) ──
+  const criticalCount = anomalies.filter(a => a.severity === 'critical').length;
+  if (criticalCount >= 2) {
+    trustScore = Math.min(trustScore, 39);
+    auditReasons.push(`Hard cap: trustScore ≤ 39 por ${criticalCount} anomalías críticas.`);
+    analysisLimitations.push('Existen múltiples anomalías críticas que bloquean una interpretación fiable.');
+  }
+
+  if (contextChecklist && contextChecklist.closeStatus === 'draft' && contextChecklist.reconciliationIssues === 'high') {
+    trustScore = Math.min(trustScore, 49);
+    auditReasons.push('Hard cap: trustScore ≤ 49 por borrador + conciliación deficiente.');
+    analysisLimitations.push('El libro está en borrador y presenta incidencias relevantes de conciliación.');
+  }
+
+  // ── 4. Determinar nivel de confianza ──
   let confidenceLevel = 'blocked';
   for (const [level, cfg] of Object.entries(CONFIDENCE_LEVELS)) {
     if (trustScore >= cfg.min) { confidenceLevel = level; break; }
   }
   const cfg = CONFIDENCE_LEVELS[confidenceLevel];
 
-  // Limitaciones derivadas automáticamente
-  const analysisLimitations = [];
+  // ── 5. Limitaciones derivadas de anomalías técnicas ──
   const highCritical = anomalies.filter(a => a.severity === 'high' || a.severity === 'critical');
   if (highCritical.length > 0) {
     analysisLimitations.push(`${highCritical.length} anomalía(s) grave(s) detectada(s) en el libro contable.`);
@@ -469,13 +634,42 @@ function getConfidenceMeta(trustScore, anomalies, ebitdaSuspect) {
     analysisLimitations.push('Existen descuadres contables que invalidan la integridad aritmética del libro.');
   }
 
-  // Funding readiness flags
+  // ── 6. Funding readiness flags ──
   const fundingReadinessFlags = {
     scoringDefensible:    confidenceLevel !== 'blocked',
     forecastDefensible:   confidenceLevel === 'reliable' || confidenceLevel === 'reservations',
     narrativeConclusive:  confidenceLevel === 'reliable',
     requiresManualReview: confidenceLevel === 'indicative' || confidenceLevel === 'blocked'
   };
+
+  // Overrides directos del checklist sobre flags
+  if (contextChecklist) {
+    if (contextChecklist.coveragePeriod === 'missing_months') {
+      fundingReadinessFlags.forecastDefensible = false;
+    }
+    if (contextChecklist.bridgeAccounts === 'high') {
+      fundingReadinessFlags.scoringDefensible = false;
+      fundingReadinessFlags.requiresManualReview = true;
+    }
+    if (contextChecklist.publicDebtRisk === 'delicate') {
+      fundingReadinessFlags.scoringDefensible = false;
+      fundingReadinessFlags.narrativeConclusive = false;
+      fundingReadinessFlags.requiresManualReview = true;
+    }
+    if (contextChecklist.reconciliationIssues === 'high') {
+      fundingReadinessFlags.forecastDefensible = false;
+      fundingReadinessFlags.requiresManualReview = true;
+    }
+  }
+  if (criticalCount >= 2) {
+    fundingReadinessFlags.scoringDefensible = false;
+    fundingReadinessFlags.forecastDefensible = false;
+    fundingReadinessFlags.narrativeConclusive = false;
+    fundingReadinessFlags.requiresManualReview = true;
+  }
+
+  // Deduplicar limitaciones
+  const uniqueLimitations = [...new Set(analysisLimitations.filter(Boolean))];
 
   return {
     trustScore,
@@ -484,16 +678,18 @@ function getConfidenceMeta(trustScore, anomalies, ebitdaSuspect) {
     forecastMode: cfg.forecastMode,
     scoringPenalty: cfg.scoringPenalty,
     ebitdaSuspect,
-    analysisLimitations,
-    fundingReadinessFlags
+    analysisLimitations: uniqueLimitations,
+    fundingReadinessFlags,
+    auditReasons  // Opcional — trazabilidad interna del ajuste humano
   };
 }
 
 // ---- Análisis completo ----
 /**
- * analyzeLedger(parsedLedger, profileId, customMapping, approvedAccruals) → AnalysisResult
+ * analyzeLedger(parsedLedger, profileId, customMapping, approvedAccruals, contextChecklist) → AnalysisResult
+ * @param {Object|null} contextChecklist - Señales humanas de calidad contable (null = neutro)
  */
-function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAccruals = []) {
+function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAccruals = [], contextChecklist = null) {
   const { entries, byMonth } = parsedLedger;
   const months = Object.keys(byMonth).sort();
   const nMeses = Math.max(months.length, 1);
@@ -591,7 +787,7 @@ function analyzeLedger(parsedLedger, profileId, customMapping = null, approvedAc
   trustScore = Math.max(0, Math.floor(trustScore));
 
   // ---- Confidence Engine (bloque único, centralizado) ----
-  const confidence = getConfidenceMeta(trustScore, allAnomalies, ebitdaSuspect);
+  const confidence = getConfidenceMeta(trustScore, allAnomalies, ebitdaSuspect, contextChecklist);
 
   const data = {
     meta: { ...parsedLedger.meta }, // trustScore eliminado de meta (Legacy Phase 5)
